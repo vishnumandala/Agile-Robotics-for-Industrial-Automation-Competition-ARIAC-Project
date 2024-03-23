@@ -23,3 +23,9 @@ ros2 launch ariac_gazebo ariac.launch.py trial_name:=rwa3_spring2024
 ```bash
 ros2 run rwa3_group1 start_ariac_competition 
 ```
+
+6. Terminal 3: For task 4
+
+```bash
+ros2 run rwa3_group1 order_management.py 
+```

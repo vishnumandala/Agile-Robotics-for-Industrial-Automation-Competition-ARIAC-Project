@@ -7,10 +7,13 @@ endif()
 
 # find packages
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(ariac_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
+
 
 install(DIRECTORY
   include
@@ -31,4 +34,13 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+
+# Python Executables
+
+ament_python_install_package(${PROJECT_NAME})
+
+install(PROGRAMS
+  script/order_management.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 ament_package()
