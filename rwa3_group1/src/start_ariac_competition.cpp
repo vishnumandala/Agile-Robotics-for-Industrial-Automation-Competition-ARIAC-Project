@@ -13,14 +13,9 @@
 
 
 void AriacCompetitionStart::competition_state_subscriber_cb(const ariac_msgs::msg::CompetitionState::SharedPtr state){
-    // std::map<ariac_msgs::msg::CompetitionState,std::string> competition_states;
-    // competition_states[ariac_msgs::msg::CompetitionState::READY] = "ready"
-    // competition_states[ariac_msgs::msg::CompetitionState::IDLE] = "IDLE"
-    // competition_states[ariac_msgs::msg::CompetitionState::STARTED] = "STARTED"
-    // competition_states[ariac_msgs::msg::CompetitionState::ORDER_ANNOUNCEMENTS_DONE] = "ORDER_ANNOUNCEMENTS_DONE"
-    // competition_states[ariac_msgs::msg::CompetitionState::ENDED] = "ENDED"
-    std::string current_competition_state;
 
+    std::string current_competition_state;
+    // current_competition_state = competition_states.find(state->competition_state);
     if(state->competition_state == ariac_msgs::msg::CompetitionState::READY){
         current_competition_state = "READY";
     }else     if(state->competition_state == ariac_msgs::msg::CompetitionState::IDLE){
