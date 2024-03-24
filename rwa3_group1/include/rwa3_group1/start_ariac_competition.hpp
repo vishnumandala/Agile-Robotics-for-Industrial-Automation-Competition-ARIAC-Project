@@ -50,6 +50,7 @@ class AriacCompetitionStart : public rclcpp::Node {
     // competition_states[ariac_msgs::msg::CompetitionState::ORDER_ANNOUNCEMENTS_DONE] = "ORDER_ANNOUNCEMENTS_DONE"
     // competition_states[ariac_msgs::msg::CompetitionState::ENDED] = "ENDED"
   }
+  void start_competition();
   
 
  private:
@@ -60,6 +61,6 @@ class AriacCompetitionStart : public rclcpp::Node {
   ariac_msgs::msg::CompetitionState current_state;
   // std::map<ariac_msgs::msg::CompetitionState::competition_state,std::string> competition_states;
   void competition_state_subscriber_cb(const ariac_msgs::msg::CompetitionState::SharedPtr state);
-  void start_competition();
+  
 
 };
