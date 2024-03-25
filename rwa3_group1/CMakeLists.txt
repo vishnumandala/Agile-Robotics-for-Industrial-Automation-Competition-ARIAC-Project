@@ -17,6 +17,7 @@ find_package(std_srvs REQUIRED)
 
 install(DIRECTORY
   include
+  launch
   DESTINATION share/${PROJECT_NAME}
 )
 # # add include directories
@@ -43,4 +44,10 @@ install(PROGRAMS
   script/order_management.py
   DESTINATION lib/${PROJECT_NAME}
 )
+
+install(PROGRAMS
+  launch/rwa3_group1.launch.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()
