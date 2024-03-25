@@ -4,11 +4,11 @@
   <name>rwa3_group1</name>
   <version>0.0.0</version>
   <description>Rwa2 Demo : An exercise to test node remapping, parameter setting, topic remapping through three thermostats</description>
+  <maintainer email="achavan1@umd.edu">Ankur Mahesh Chavan</maintainer>
+  <maintainer email="gdatta@umd.edu">Datta Lohith Gannavarapu</maintainer>
+  <maintainer email="sshah115@umd.edu">Shail Kiritkumar Shah</maintainer>
   <maintainer email="vinay06@umd.edu">Vinay Krishna Bukka</maintainer>
-  <maintainer email="vinay06@umd.edu">Vinay Krishna Bukka</maintainer>
-  <maintainer email="vinay06@umd.edu">Vinay Krishna Bukka</maintainer>
-  <maintainer email="vinay06@umd.edu">Vinay Krishna Bukka</maintainer>
-  <maintainer email="vinay06@umd.edu">Vinay Krishna Bukka</maintainer>
+  <maintainer email="vishnum@umd.edu">Vishnu Mandala</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
