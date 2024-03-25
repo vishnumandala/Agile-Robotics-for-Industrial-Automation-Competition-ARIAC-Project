@@ -67,7 +67,7 @@ void AriacCompetitionStart::start_competition_cb(rclcpp::Client<std_srvs::srv::T
 
 
 
-}
+
 
 int main(int argc, char *argv[]) {
   rclcpp::init(argc, argv);
@@ -185,3 +185,4 @@ int main(int argc, char *argv[]) {
 //     } else {
 //         RCLCPP_INFO(this->get_logger(),"Still Waiting For AGV Move Service Response");
 //     }
+// }
