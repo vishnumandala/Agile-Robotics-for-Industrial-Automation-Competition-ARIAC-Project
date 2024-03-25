@@ -1,3 +1,14 @@
+/**
+ * @file start_ariac_competition.cpp
+ * @author Ankur Mahesh Chavan (achavan1@umd.edu),Datta Lohith Gannavarapu (gdatta@umd.edu), Shail Kiritkumar Shah (sshah115@umd.edu)
+ * Vinay Krishna Bukka (vinay06@umd.edu), Vishnu Mandala (vishnum@umd.edu)
+ * @brief This program contains implementation details for subscribers and clients
+ * @version 0.1
+ * @date 2024-03-25
+ * 
+ * @copyright Copyright (c) 2024
+ * 
+ */
 #include <iostream>
 #include <rclcpp/rclcpp.hpp>
 #include <string>
@@ -14,6 +25,11 @@
 
 using namespace std::chrono_literals;
 
+ /**
+ * @brief A subscriber callback continously getting competition state and updating global state
+ * 
+ * @param state Contains the state
+ */
 void AriacCompetitionStart::competition_state_subscriber_cb(const ariac_msgs::msg::CompetitionState::SharedPtr state){
     if (current_state.competition_state != state->competition_state){
     auto current_competition_state = competition_states[state->competition_state];
@@ -25,10 +41,10 @@ void AriacCompetitionStart::competition_state_subscriber_cb(const ariac_msgs::ms
     
     current_state.competition_state = state->competition_state; 
 }
-
-
-
-
+/**
+ * @brief Client function used to call when Competition state is ready
+ * 
+ */
 void AriacCompetitionStart::start_competition(){
     if (current_state.competition_state ==  ariac_msgs::msg::CompetitionState::STARTED){
         return;
@@ -52,6 +68,11 @@ void AriacCompetitionStart::start_competition(){
 
 }
 
+/**
+ * @brief Callback function to get the status of client requent sent to server
+ * 
+ * @param future Contains the status of request sent 
+ */
 void AriacCompetitionStart::start_competition_cb(rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future){
     auto status = future.wait_for(5s);
     if (status == std::future_status::ready)
@@ -64,11 +85,13 @@ void AriacCompetitionStart::start_competition_cb(rclcpp::Client<std_srvs::srv::T
 }
 
 
-
-
-
-
-
+/**
+ * @brief The main function creates object node and spins
+ * 
+ * @param argc Number of arguments
+ * @param argv List of arguments from CLI
+ * @return int 
+ */
 int main(int argc, char *argv[]) {
   rclcpp::init(argc, argv);
   auto start_node = std::make_shared<AriacCompetitionStart>("trial_start");
