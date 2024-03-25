@@ -1,0 +1,66 @@
+# Trial Name: rwa4_summer2023.yaml
+
+
+# ENVIRONMENT SETUP
+time_limit: -1 # options: -1 (no time limit) or number of seconds
+gazebo_state_logging: false # options: true or false
+
+parts:
+  agvs:
+    agv1:
+      tray_id: 1
+      parts:
+        - type: 'battery'
+          color: 'orange'
+          quadrant: 2
+          rotation: 'pi/2'
+        - type: 'sensor'
+          color: 'green'
+          quadrant: 1
+          rotation: 0
+    agv3:
+      tray_id: 3
+      parts:
+        - type: 'sensor'
+          color: 'purple'
+          quadrant: 2
+          rotation: 'pi/3'
+        - type: 'battery'
+          color: 'purple'
+          quadrant: 3
+          rotation: 'pi'
+  
+
+orders:
+  - id: 'KITTING01'
+    type: 'kitting'
+    announcement:
+      time_condition: 0
+    priority: false
+    kitting_task:
+      agv_number: 1
+      tray_id: 1
+      destination: 'warehouse'
+      products:
+        - type: 'battery'
+          color: 'orange'
+          quadrant: 2
+        - type: 'sensor'
+          color: 'green'
+          quadrant: 1
+  - id: 'KITTING02'
+    type: 'kitting'
+    announcement:
+      time_condition: 10
+    priority: true
+    kitting_task:
+      agv_number: 3
+      tray_id: 3
+      destination: 'warehouse'
+      products:
+        - type: 'sensor'
+          color: 'purple'
+          quadrant: 2
+        - type: 'battery'
+          color: 'purple'
+          quadrant: 3
