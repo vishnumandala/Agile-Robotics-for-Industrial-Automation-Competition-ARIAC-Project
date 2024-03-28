@@ -7,7 +7,7 @@ from rwa3_group1.order_management_interface import OrderManagement
 
 def main(args=None):
     rclpy.init(args=args)
-    node = OrderManagement("order")
+    node = OrderManagement("order_management")
     executor = MultiThreadedExecutor()
     executor.add_node(node)
 

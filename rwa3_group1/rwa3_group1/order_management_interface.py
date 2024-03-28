@@ -68,8 +68,11 @@ class Order:
         self._order_id = order_data.id
         self._order_type = order_data.type
         self._order_priority = order_data.priority
+        
         self.waiting = False  # Indicates if the order is currently in its waiting period
-        self.elapsed_wait = 0  # Time already waited before being paused (if any)
+        self.elapsed_wait = 0  # Track elapsed wait time for the order
+        self.wait_start_time = None  # Track the start time of the wait period
+        
         if (self._order_type == OrderMsg.KITTING):
             self._order_task = Kitting(order_data)
         elif (self._order_type == OrderMsg.ASSEMBLY):
@@ -98,8 +101,12 @@ class OrderManagement(Node):
         self.end_competition_client = self.create_client(Trigger, '/ariac/end_competition', callback_group=self.service_callback_group)
 
         self.get_logger().info(f"Node {node_name} initialized")
+        
         self._orders_queue = PriorityQueue()
         self.agv_statuses = {}
+        self.current_order = None  # Track the currently processing or waiting order
+        self.competition_ended = False
+        
         self._order_processing_thread = None
         self._end_condition_thread = None
         self.competition_ended = False
@@ -181,34 +188,43 @@ class OrderManagement(Node):
 
     def _wait_and_process_current_order(self):
         order = self.current_order
-        if order.waiting:
-            # If the order was paused and is now resumed, calculate the remaining wait time
+        if order.elapsed_wait > 0:
+            # Calculate the remaining wait time for a resuming order
             remaining_wait = max(15 - order.elapsed_wait, 0)
+            self.get_logger().info(f"Order {order._order_id} resuming wait with {remaining_wait:.2f} seconds remaining.")
         else:
-            # If this is the first time the order is waiting, the full wait time is 15 seconds
+            # Full wait time for a first-time wait
             remaining_wait = 15
-            order.waiting = True
+        order.wait_start_time = time.time()
 
+        order.waiting = True  # Ensure order.waiting is set to True whether it's a new wait or a resumed one
         self.get_logger().info(f"Order {order._order_id}: Waiting for {remaining_wait:.2f} seconds before processing.")
 
-        start_wait = time.time()
-        while time.time() - start_wait < remaining_wait:
-            time.sleep(0.1)  # Short sleep to allow for interruption
+        while remaining_wait > 0:
+            start_wait = time.time()
+            time.sleep(min(0.1, remaining_wait))
             with self.processing_lock:
-                if not order.waiting:  # If the order's waiting got interrupted
+                if not order.waiting:
+                    # If the order's waiting is interrupted, adjust the elapsed wait time and pause the wait
                     paused_wait = time.time() - start_wait
-                    order.elapsed_wait += paused_wait  # Update the elapsed wait time with the time waited before being paused
-                    self.get_logger().info(f"Order {order._order_id}: Wait paused at {paused_wait:.2f} seconds due to high-priority order arrival.")
-                    return  # Exit this function and wait for the current_order to be set again
+                    order.elapsed_wait += paused_wait
+                    self.get_logger().info(f"Order {order._order_id}: Wait paused at {paused_wait:.2f} seconds. Total elapsed wait time: {order.elapsed_wait:.2f} seconds.")
+                    return  # Exit the wait loop if the order is paused
 
-        # Order wait is complete, process the order
-        self.get_logger().info(f"Order {order._order_id}: Wait completed. Now processing the order.")
-        self._process_order(order)
+            actual_waited = time.time() - start_wait
+            remaining_wait -= actual_waited
+
+        total_waited = time.time() - order.wait_start_time
+        order.elapsed_wait += total_waited  # Update the total elapsed wait time
+        order.waiting = False  # Set waiting to False after the wait is completed
+
+        self.get_logger().info(f"Order {order._order_id}: Total elapsed wait time before processing: {order.elapsed_wait:.2f} seconds.")
+        self._process_order(order)  # Proceed to process the order
 
         with self.processing_lock:
-            self.current_order = None  # Clear the current order, allowing the next order to be processed
-            self.processing_lock.notify()  # Notify in case there are waiting orders
-                
+            self.current_order = None  # Clear the current order after processing
+            self.processing_lock.notify()  # Notify potentially waiting threads that the current order has been processed
+
     def _lock_agv_tray(self, agv_id):
         self.get_logger().info(f"Locking tray for AGV{agv_id}...")
         service_name = f'/ariac/agv{agv_id}_lock_tray'
@@ -244,14 +260,19 @@ class OrderManagement(Node):
 
         with self.processing_lock:
             if msg.priority and self.current_order and self.current_order.waiting:  # High-priority order interrupts the current order
+                # Update the elapsed_wait for the current order before pausing
+                current_time = time.time()
+                if hasattr(self.current_order, 'wait_start_time'):
+                    interrupted_wait = current_time - self.current_order.wait_start_time
+                    self.current_order.elapsed_wait += interrupted_wait
+                    self.get_logger().info(f"Order {self.current_order._order_id}: Paused for high-priority order {msg.id}. Total elapsed wait time: {self.current_order.elapsed_wait:.2f} seconds.")
                 self.current_order.waiting = False  # Pause the current order's waiting
                 self._orders_queue.put((1, self.current_order))  # Re-queue the paused order
-                self.get_logger().info(f"Order {self.current_order._order_id}: Paused for high-priority order {msg.id}. Elapsed wait time: {self.current_order.elapsed_wait:.2f} seconds.")
                 self.current_order = order  # Set high-priority order as current order to be processed immediately
             else:
                 self._orders_queue.put((1 if msg.priority else 2, order))  # Regular queueing for orders
 
-            self.processing_lock.notify()  
+            self.processing_lock.notify()
 
         # If no order is currently being processed, start processing
         if self._order_processing_thread is None or not self._order_processing_thread.is_alive():
