@@ -10,9 +10,6 @@ import time
 import threading
 
 class Kitting:
-    """
-    Class to represent the kitting task of an order.
-    """
     def __init__(self,order_data):
         self._agv_number = order_data.kitting_task.agv_number
         self._tray_id = order_data.kitting_task.tray_id
@@ -36,9 +33,6 @@ class Kitting:
         return self._destination
 
 class Assembly:
-    """
-    Class to represent the assembly task of an order.
-    """
     def __init__(self,order_data):
         self._agv_numbers = order_data.assembly_task.agv_numbers
         self._station = order_data.assembly_task.station
@@ -57,9 +51,6 @@ class Assembly:
         return self._parts
 
 class CombinedTask:
-    """
-    Class to represent the combined task of an order.
-    """
     def __init__(self,order_data):
         self._station = order_data.combined_task.station
         self._parts = order_data.combined_task.parts
@@ -73,9 +64,6 @@ class CombinedTask:
         return self._parts  
 
 class Order:
-    """
-    Class to represent an order.
-    """
     def __init__(self,order_data):
         self._order_id = order_data.id
         self._order_type = order_data.type
@@ -94,40 +82,35 @@ class Order:
             
 
 class OrderManagement(Node):
-    """
-    Class to manage the orders and competition state.
-
-    Inherited Class:
-        Node (rclpy.node.Node): Node class
-    """
     def __init__(self, node_name):
-        """
-        Initialize the node.
-
-        Args:
-            node_name (str): Name of the node
-        """
         super().__init__(node_name)
-        self._callback_group = ReentrantCallbackGroup()
-        self._service_group = ReentrantCallbackGroup()
+        self.callback_group = ReentrantCallbackGroup()
+        self.service_callback_group = ReentrantCallbackGroup()
 
         # Subscriptions
         self.orders_subscription = self.create_subscription(
             OrderMsg, '/ariac/orders', self._orders_initialization_cb,
-            QoSProfile(depth=10), callback_group=self._callback_group)
+            QoSProfile(depth=10), callback_group=self.callback_group)
 
         self.competition_state_subscription = self.create_subscription(
             CompetitionState, '/ariac/competition_state',
             self._competition_state_cb, QoSProfile(depth=10),
-            callback_group=self._callback_group)
+            callback_group=self.callback_group)
+
+        # Timer to process orders
+        self._process_order_timer = self.create_timer(15, self._process_order_timer_cb, callback_group=self._callback_group)
 
         # Initialize variables
         self.get_logger().info(f"Node {node_name} initialized")
+        
         self._orders_queue = PriorityQueue()
-        self._agv_statuses = {}
+        self.agv_statuses = {}
         self.current_order = None  # Track the currently processing or waiting order
         self.competition_ended = False
 
+        self.current_order = None  # Track the currently processing or waiting order
+        self.competition_ended = False
+        
         self._order_processing_thread = None
         self._end_condition_thread = None
         self.competition_ended = False
@@ -174,27 +157,25 @@ class OrderManagement(Node):
                 callback_group=self._callback_group)
             
     def _competition_state_cb(self, msg):
-        """
-        Callback for competition state changes. Starts the end condition checker when order announcements are done.
-        """
-        # Start the end condition checker when order announcements are done
+        """Callback for competition state changes. Starts the end condition checker when order announcements are done."""
         if msg.competition_state == CompetitionState.ORDER_ANNOUNCEMENTS_DONE:
             if self._end_condition_thread is None or not self._end_condition_thread.is_alive():
                 self._end_condition_thread = threading.Thread(target=self._check_end_conditions)
                 self._end_condition_thread.start()
 
-    def _agv_status_cb(self, msg, agv_id):
-        """
-        Callback for AGV status changes. Updates the AGV status in the dictionary.
+    def _check_end_conditions(self):
+        """Periodically check if all orders are processed and AGVs are in warehouse, then end competition."""
+        while not self.competition_ended and rclpy.ok():
+            if self._orders_queue.empty() and all(status == "WAREHOUSE" for status in self.agv_statuses.values()):
+                self.get_logger().info("All orders processed and AGVs at destination. Preparing to end competition.")
+                self._end_competition()
+            time.sleep(5)  # Check every 5 seconds
 
-        Args:
-            msg (any): Message received from the topic
-            agv_id (int): ID of the AGV
-        """
+    def _agv_status_cb(self, msg, agv_id):
         # Define a mapping for AGV locations
         location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
         status = location_status_map.get(msg.location, "OTHER")
-        self._agv_statuses[agv_id] = status
+        self.agv_statuses[agv_id] = status
 
     def _process_orders(self):
         """
