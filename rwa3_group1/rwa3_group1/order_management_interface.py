@@ -130,7 +130,6 @@ class OrderManagement(Node):
 
         self._order_processing_thread = None
         self._end_condition_thread = None
-        self.competition_ended = False
         self.processing_lock = threading.Condition()  # Condition variable for synchronizing order processing
 
     def _orders_initialization_cb(self, msg):
