@@ -1,3 +1,11 @@
+"""
+File: order_management.py
+Author: Ankur Mahesh Chavan (achavan1@umd.edu),Datta Lohith Gannavarapu (gdatta@umd.edu),
+Shail Kiritkumar Shah (sshah115@umd.edu) Vinay Krishna Bukka (vinay06@umd.edu),
+Vishnu Mandala (vishnum@umd.edu)
+Date: 03/28/2024
+Description: main function to spin the node.
+"""
 #!/usr/bin/env python3
 
 import rclpy
@@ -17,5 +25,6 @@ def main(args=None):
         node.destroy_node()
         rclpy.shutdown()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
