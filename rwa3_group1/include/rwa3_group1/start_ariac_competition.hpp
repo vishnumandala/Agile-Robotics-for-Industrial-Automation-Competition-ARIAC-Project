@@ -49,15 +49,25 @@ class AriacCompetitionStart : public rclcpp::Node {
     competition_states[ariac_msgs::msg::CompetitionState::STARTED] = "STARTED";
     competition_states[ariac_msgs::msg::CompetitionState::ORDER_ANNOUNCEMENTS_DONE] = "ORDER_ANNOUNCEMENTS_DONE";
     competition_states[ariac_msgs::msg::CompetitionState::ENDED] = "ENDED";
+
+    custom_agv_details_subscriber_ = this->create_subscription<std_msgs::msg::String>("/ariac_custom/agv_details", 10,
+    std::bind(&AriacCompetitionStart::custom_agv_details_cb, this, std::placeholders::_1));
+
   }
   
   
  private:
+  
   rclcpp::Subscription<ariac_msgs::msg::CompetitionState>::SharedPtr competition_state_subscriber_;  // Competition state subscriber declaration
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr custom_agv_details_subscriber_;  // Competition state subscriber declaration
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr start_competition_client_; // Start Competition client
   // rclcpp::TimerBase::SharedPtr timer_;
   ariac_msgs::msg::CompetitionState current_state; // Global variable to update current state
   std::map<int,std::string> competition_states; // Map to store competition states for Logging
+  int agv_num;
+  std::string order_id;
+  int order_destination;
+
   /**
    * @brief A subscriber callback continously getting competition state and updating global state
    * 
@@ -76,10 +86,16 @@ class AriacCompetitionStart : public rclcpp::Node {
    */
   void start_competition_cb(rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future);
 
+  void custom_agv_details_cb(const std_msgs::msg::String::SharedPtr msg);
+
+
   // C++ Conversion backup for Task 6,7
-  // void lock_tray(int agv_number);
-  // void lock_tray_cb(rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future);
-  // void move_agv(int agv_number);
-  // void move_agv_cb(rclcpp::Client<ariac_msgs::srv::MoveAGV>::SharedFuture future);
+  void lock_tray(int agv_number);
+
+  void lock_tray_cb(rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future);
+
+  void move_agv(int agv_number);
+  
+  void move_agv_cb(rclcpp::Client<ariac_msgs::srv::MoveAGV>::SharedFuture future);
 
 };
