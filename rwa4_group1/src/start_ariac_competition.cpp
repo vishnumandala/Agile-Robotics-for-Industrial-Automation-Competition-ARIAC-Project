@@ -22,6 +22,7 @@
 #include <ariac_msgs/msg/competition_state.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <ariac_msgs/srv/move_agv.hpp>
+#include <ariac_msgs/msg/order.hpp>
 
 using namespace std::chrono_literals;
 
@@ -84,6 +85,78 @@ void AriacCompetitionStart::start_competition_cb(rclcpp::Client<std_srvs::srv::T
 
 }
 
+void AriacCompetitionStart::custom_agv_details_cb(const std_msgs::msg::String::SharedPtr msg){
+    std::string custom_string = msg.data;
+
+    // Extract substrings based on indices
+    agv_num = std::stoi(custom_string.substr(0, 1));  // Extracts from index 0 to index 1 (excluding index 1)
+    order_destination = std::stoi(custom_string.substr(1, 1));  // Extracts from index 1 to index 2 (excluding index 2)
+    order_id = custom_string.substr(2); // Extracts from index 2 to the end of the string
+}
+
+void AriacCompetitionStart::lock_tray(int agv_number){
+    auto lock_tray_service_name = "/ariac/agv"+ std::to_string(agv_number)+"_lock_tray";
+    auto lock_agv_tray_client = this->create_client<std_srvs::srv::Trigger>(lock_tray_service_name);
+    RCLCPP_INFO(this->get_logger(),"AGV Tray Locking is Starting..");
+    while (!lock_agv_tray_client->wait_for_service(std::chrono::seconds(1)))
+    {
+        if (!rclcpp::ok())
+        {
+            RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for the service lock_tray. Exiting.");
+            return;
+        }
+        RCLCPP_INFO(this->get_logger(), "Service lock_tray not available, waiting again...");
+    }
+    
+    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+    // auto future = start_competition_client_->async_send_request(request);
+    auto future_result = lock_agv_tray_client->async_send_request(request, std::bind(&AriacCompetitionStart::lock_tray_cb, this, std::placeholders::_1));
+
+}
+
+void AriacCompetitionStart::lock_tray_cb(rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future){
+    auto status = future.wait_for(5s);
+    if (status == std::future_status::ready)
+    {
+        RCLCPP_INFO(this->get_logger(),"AGV's Tray Locked");
+    } else {
+        RCLCPP_INFO(this->get_logger(),"Still Waiting For AGV Tray Locking Service Response");
+    }
+
+}
+
+void AriacCompetitionStart::move_agv(int agv_number, int agv_destination){
+    auto move_agv_service_name = "/ariac/move_agv"+ std::to_string(agv_number);
+    auto move_agv_client = this->create_client<ariac_msgs::srv::MoveAGV>(move_agv_service_name);
+
+    
+
+    RCLCPP_INFO(this->get_logger(),"AGV Tray Locking is Starting..");
+    while (!move_agv_client->wait_for_service(std::chrono::seconds(1)))
+    {
+        if (!rclcpp::ok())
+        {
+            RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for the service lock_tray. Exiting.");
+            return;
+        }
+        RCLCPP_INFO(this->get_logger(), "Service lock_tray not available, waiting again...");
+    }
+    
+    auto request = std::make_shared<ariac_msgs::srv::MoveAGV::Request>();
+    // auto future = start_competition_client_->async_send_request(request);
+    auto future_result = move_agv_client->async_send_request(request, std::bind(&AriacCompetitionStart::move_agv_cb, this, std::placeholders::_1));
+
+}
+
+void AriacCompetitionStart::move_agv_cb(rclcpp::Client<ariac_msgs::srv::MoveAGV>::SharedFuture future){
+    auto status = future.wait_for(5s);
+    if (status == std::future_status::ready)
+    {
+        RCLCPP_INFO(this->get_logger(),"The respective AGV moved Locked");
+    } else {
+        RCLCPP_INFO(this->get_logger(),"Still Waiting For AGV Move Service Response");
+    }
+}
 
 /**
  * @brief The main function creates object node and spins
@@ -146,66 +219,8 @@ int main(int argc, char *argv[]) {
 
 // Lock Tray Client Creation and Callback
 
-// void AriacCompetitionStart::lock_tray(int agv_number){
-//     auto lock_tray_service_name = "/ariac/agv"+ std::to_string(agv_number)+"_lock_tray";
-//     auto lock_agv_tray_client = this->create_client<std_srvs::srv::Trigger>(lock_tray_service_name);
-//     RCLCPP_INFO(this->get_logger(),"AGV Tray Locking is Starting..");
-//     while (!lock_agv_tray_client->wait_for_service(std::chrono::seconds(1)))
-//     {
-//         if (!rclcpp::ok())
-//         {
-//             RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for the service lock_tray. Exiting.");
-//             return;
-//         }
-//         RCLCPP_INFO(this->get_logger(), "Service lock_tray not available, waiting again...");
-//     }
-    
-//     auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
-//     // auto future = start_competition_client_->async_send_request(request);
-//     auto future_result = lock_agv_tray_client->async_send_request(request, std::bind(&AriacCompetitionStart::lock_tray_cb, this, std::placeholders::_1));
 
-// }
-
-// void AriacCompetitionStart::lock_tray_cb(rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future){
-//     auto status = future.wait_for(5s);
-//     if (status == std::future_status::ready)
-//     {
-//         RCLCPP_INFO(this->get_logger(),"AGV's Tray Locked");
-//     } else {
-//         RCLCPP_INFO(this->get_logger(),"Still Waiting For AGV Tray Locking Service Response");
-//     }
-
-// }
 
 
 // // Move Agv Client Creation and Callback
 
-// void AriacCompetitionStart::move_agv(int agv_number){
-//     auto move_agv_service_name = "/ariac/move_agv"+ std::to_string(agv_number);
-//     auto move_agv_client = this->create_client<ariac_msgs::srv::MoveAGV>(move_agv_service_name);
-//     RCLCPP_INFO(this->get_logger(),"AGV Tray Locking is Starting..");
-//     while (!move_agv_client->wait_for_service(std::chrono::seconds(1)))
-//     {
-//         if (!rclcpp::ok())
-//         {
-//             RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for the service lock_tray. Exiting.");
-//             return;
-//         }
-//         RCLCPP_INFO(this->get_logger(), "Service lock_tray not available, waiting again...");
-//     }
-    
-//     auto request = std::make_shared<ariac_msgs::srv::MoveAGV::Request>();
-//     // auto future = start_competition_client_->async_send_request(request);
-//     auto future_result = move_agv_client->async_send_request(request, std::bind(&AriacCompetitionStart::move_agv_cb, this, std::placeholders::_1));
-
-// }
-
-// void AriacCompetitionStart::move_agv_cb(rclcpp::Client<ariac_msgs::srv::MoveAGV>::SharedFuture future){
-//     auto status = future.wait_for(5s);
-//     if (status == std::future_status::ready)
-//     {
-//         RCLCPP_INFO(this->get_logger(),"The respective AGV moved Locked");
-//     } else {
-//         RCLCPP_INFO(this->get_logger(),"Still Waiting For AGV Move Service Response");
-//     }
-// }
