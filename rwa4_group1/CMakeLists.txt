@@ -43,12 +43,12 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   script/order_management.py
-  script/order_management_update.py
+  # script/order_management_update.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(PROGRAMS
-  launch/rwa3_group1.launch.py
+  launch/rwa4_group1.launch.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
