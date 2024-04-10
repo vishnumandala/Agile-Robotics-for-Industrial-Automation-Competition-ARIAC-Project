@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(rwa3_group1)
+project(rwa4_group1)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -18,6 +18,7 @@ find_package(std_srvs REQUIRED)
 install(DIRECTORY
   include
   launch
+  config
   DESTINATION share/${PROJECT_NAME}
 )
 # # add include directories

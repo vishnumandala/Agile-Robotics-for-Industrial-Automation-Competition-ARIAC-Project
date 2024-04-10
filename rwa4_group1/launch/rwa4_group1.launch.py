@@ -14,7 +14,7 @@ def generate_launch_description():
     """
     return LaunchDescription([
         Node(
-            package='rwa3_group1',
+            package='rwa4_group1',
             executable='order_management.py',
             name='OrderManagement',
             output='screen'
@@ -24,7 +24,7 @@ def generate_launch_description():
             period=2.0,
             actions=[
                 Node(
-                package='rwa3_group1',
+                package='rwa4_group1',
                 executable='start_ariac_competition',
                 name='start_ariac_competition',
                 output='screen',
