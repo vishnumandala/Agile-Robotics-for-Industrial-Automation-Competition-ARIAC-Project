@@ -43,7 +43,6 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   script/order_management.py
-  # script/order_management_update.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

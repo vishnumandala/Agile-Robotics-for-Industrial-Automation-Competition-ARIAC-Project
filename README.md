@@ -38,7 +38,7 @@ Task 8 - Python
 ```
 ### Terminal 1
 ```bash
-    ros2 launch ariac_gazebo ariac.launch.py trial_name:=rwa4_spring2024
+    ros2 launch ariac_gazebo ariac.launch.py competitor_pkg:=rwa4_group1 sensor_config:=sensors trial_name:=rwa4_spring2024
 ```
 ### Terminal 2
 ```bash
