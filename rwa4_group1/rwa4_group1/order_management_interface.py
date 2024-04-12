@@ -11,7 +11,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from rclpy.callback_groups import ReentrantCallbackGroup
-from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, AdvancedLogicalCameraImage
+from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, AdvancedLogicalCameraImage, BasicLogicalCameraImage
 from ariac_msgs.srv import MoveAGV, SubmitOrder
 from std_srvs.srv import Trigger
 from queue import PriorityQueue
@@ -179,7 +179,7 @@ class OrderManagement(Node):
         )
         
         self.right_bins_camera_subscription = self.create_subscription(
-            AdvancedLogicalCameraImage,
+            BasicLogicalCameraImage,
             "/ariac/sensors/right_bins_camera/image",
             lambda msg: self._bin_camera_callback(msg,'Right'),
             qos_profile=qos_policy,
