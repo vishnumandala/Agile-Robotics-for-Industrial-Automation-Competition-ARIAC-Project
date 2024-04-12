@@ -308,10 +308,11 @@ class OrderManagement(Node):
             self.tables_done[table_id] = True
             self._Tray_Dictionary[table_id]={}
             tray_poses = message.tray_poses
+            # self.get_logger().info(f" Tray Poses {tray_poses}")
             if len(tray_poses) > 0:
-                for _ in range(len(tray_poses)):
-                    tray_pose_id = tray_poses[0].id
-
+                for tray in range(len(tray_poses)):
+                    tray_pose_id = tray_poses[tray].id
+                    # self.get_logger().info(f" Tray Poses ID {tray_pose_id}")
                     camera_pose = Pose()
                     camera_pose.position.x = message.sensor_pose.position.x
                     camera_pose.position.y = message.sensor_pose.position.y
@@ -322,18 +323,19 @@ class OrderManagement(Node):
                     camera_pose.orientation.w = message.sensor_pose.orientation.w
 
                     tray_pose = Pose()
-                    tray_pose.position.x = tray_poses[0].pose.position.x
-                    tray_pose.position.y = tray_poses[0].pose.position.y
-                    tray_pose.position.z = tray_poses[0].pose.position.z
-                    tray_pose.orientation.x = tray_poses[0].pose.orientation.x
-                    tray_pose.orientation.y = tray_poses[0].pose.orientation.y
-                    tray_pose.orientation.z = tray_poses[0].pose.orientation.z
-                    tray_pose.orientation.w = tray_poses[0].pose.orientation.w
-
-
+                    tray_pose.position.x = tray_poses[tray].pose.position.x
+                    tray_pose.position.y = tray_poses[tray].pose.position.y
+                    tray_pose.position.z = tray_poses[tray].pose.position.z
+                    tray_pose.orientation.x = tray_poses[tray].pose.orientation.x
+                    tray_pose.orientation.y = tray_poses[tray].pose.orientation.y
+                    tray_pose.orientation.z = tray_poses[tray].pose.orientation.z
+                    tray_pose.orientation.w = tray_poses[tray].pose.orientation.w
                     tray_world_pose = self._multiply_pose(camera_pose, tray_pose)
-
-                    self._Tray_Dictionary[table_id][tray_pose_id]={'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z], 'status':False}
+                    if self._Tray_Dictionary[table_id] is None:
+                        self._Tray_Dictionary[table_id] = {}
+                    else:
+                        self._Tray_Dictionary[table_id].update({tray_pose_id:{'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z], 'status':False}})
+                    # self.get_logger().info(f"    - {self._Tray_Dictionary}")
 
     def _bin_camera_callback(self, message,side='Unknown'):
         
@@ -376,6 +378,8 @@ class OrderManagement(Node):
                 else:
                     self._Bins_Dictionary[side][(type,color)]={}
                     self._Bins_Dictionary[side][(type,color)][0]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z],'picked': False}
+                # self.get_logger().info(f"    - {self._Bins_Dictionary}")
+
 
     def _multiply_pose(self, pose1: Pose, pose2: Pose) -> Pose:
         '''
