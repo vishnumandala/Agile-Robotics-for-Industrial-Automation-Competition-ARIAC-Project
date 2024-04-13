@@ -9,8 +9,9 @@ Description: Module to initiate order and manage orders based on priority for AG
 
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
 from rclpy.qos import QoSProfile
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup,ReentrantCallbackGroup
 from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, AdvancedLogicalCameraImage
 from ariac_msgs.srv import MoveAGV, SubmitOrder
 from std_srvs.srv import Trigger
@@ -130,20 +131,23 @@ class OrderManagement(Node):
             node_name (str): Name of the node
         """
         super().__init__(node_name)
-        self._callback_group = ReentrantCallbackGroup()
+        self._order_callback_group = ReentrantCallbackGroup()
+        self._sensor_callback_group = ReentrantCallbackGroup()
+        self._competition_callback_group = ReentrantCallbackGroup()
+        self._agv_callback_group = ReentrantCallbackGroup()
         self._service_group = ReentrantCallbackGroup()
 
         # Subscriptions
         qos_policy = rclpy.qos.QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
                                           history=rclpy.qos.HistoryPolicy.KEEP_LAST,
-                                          depth=1)
+                                          depth=10)
 
         self.orders_subscription = self.create_subscription(
             OrderMsg,
             "/ariac/orders",
             self._orders_initialization_cb,
-            QoSProfile(depth=10),
-            callback_group=self._callback_group,
+            qos_profile=qos_policy,
+            callback_group=self._order_callback_group
         )
 
         # self.competition_state_subscription = self.create_subscription(
@@ -151,7 +155,7 @@ class OrderManagement(Node):
         #     "/ariac/competition_state",
         #     self._competition_state_cb,
         #     QoSProfile(depth=10),
-        #     callback_group=self._callback_group,
+        #     callback_group=self._competition_callback_group,
         # )
 
         self.left_table_camera_subscription = self.create_subscription(
@@ -159,7 +163,7 @@ class OrderManagement(Node):
             "/ariac/sensors/left_table_camera/image",
             lambda msg: self._table_camera_callback(msg,'Left'),
             qos_profile=qos_policy,
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self.right_table_camera_subscription = self.create_subscription(
@@ -167,7 +171,7 @@ class OrderManagement(Node):
             "/ariac/sensors/right_table_camera/image",
             lambda msg: self._table_camera_callback(msg,'Right'),
             qos_profile=qos_policy,
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self.left_bins_camera_subscription = self.create_subscription(
@@ -175,7 +179,7 @@ class OrderManagement(Node):
             "/ariac/sensors/left_bins_camera/image",
             lambda msg: self._bin_camera_callback(msg,'Left'),
             qos_profile=qos_policy,
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self.right_bins_camera_subscription = self.create_subscription(
@@ -183,12 +187,12 @@ class OrderManagement(Node):
             "/ariac/sensors/right_bins_camera/image",
             lambda msg: self._bin_camera_callback(msg,'Right'),
             qos_profile=qos_policy,
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         # To prevent unused variable warning
         self.orders_subscription
-        self.competition_state_subscription
+        # self.competition_state_subscription
         self.left_table_camera_subscription
         self.right_table_camera_subscription
         self.left_bins_camera_subscription
@@ -211,11 +215,45 @@ class OrderManagement(Node):
 
         self._high_priority_orders = []
         self._normal_orders =[]
+        self._time_reached_indices_high = []
+        self._time_reached_indices_normal = []
         self._high_priority_orders_timer = [0]*10
         self._normal_orders_timer = [0]*10
 
-        self._order_priority_timer = self.create_timer(1, self.order_priority_timer_cb, callback_group=self._callback_group)
+        self._order_priority_timer = self.create_timer(1, self.order_priority_timer_cb, callback_group=self._order_callback_group)
+        self._order_processing_publisher = self.create_publisher(String,"/ariac_custom/order",10)
+        self._order_processing_subscription= self.create_subscription(String, "/ariac_custom/order", self._process_order,qos_profile=qos_policy,callback_group=self._order_callback_group)
         self._order_processing_flag = False
+
+
+        self._agv1_status = self.create_subscription(
+                AGVStatus,
+                f"/ariac/agv1_status",
+                lambda msg: self._agv_status_cb(msg, 1),qos_profile=qos_policy,
+                callback_group=self._order_callback_group,
+            )
+        self._agv2_status = self.create_subscription(
+                AGVStatus,
+                f"/ariac/agv2_status",
+                lambda msg: self._agv_status_cb(msg, 2),qos_profile=qos_policy,
+                callback_group=self._order_callback_group,
+            )
+        self._agv3_status = self.create_subscription(
+                AGVStatus,
+                f"/ariac/agv3_status",
+                lambda msg: self._agv_status_cb(msg, 3),qos_profile=qos_policy,
+                callback_group=self._order_callback_group,
+            )
+        self._agv4_status = self.create_subscription(
+                AGVStatus,
+                f"/ariac/agv4_status",
+                lambda msg: self._agv_status_cb(msg, 4),qos_profile=qos_policy,
+                callback_group=self._order_callback_group,
+            )        
+        self._agv1_status_value = "Kitting Station"
+        self._agv2_status_value = "Kitting Station"
+        self._agv3_status_value = "Kitting Station"
+        self._agv4_status_value = "Kitting Station"
     def _orders_initialization_cb(self, msg):
         """
         Callback for receiving orders.
@@ -235,47 +273,53 @@ class OrderManagement(Node):
         self.get_logger().info(f"HIgh,{self._high_priority_orders}")
         self.get_logger().info(f"Normal {self._normal_orders}")
         
-       
-
         agv_id = order._order_task.agv_number
-        if agv_id not in self._agv_statuses:
-            self.create_subscription(
-                AGVStatus,
-                f"/ariac/agv{agv_id}_status",
-                lambda msg: self._agv_status_cb(msg, agv_id),
-                QoSProfile(depth=10),
-                callback_group=self._callback_group,
-            )
+        # if agv_id not in self._agv_statuses:
+        #     self.create_subscription(
+        #         AGVStatus,
+        #         f"/ariac/agv{agv_id}_status",
+        #         lambda msg: self._agv_status_cb(msg, agv_id),
+        #         callback_group=self._agv_callback_group,
+        #     )
     def order_priority_timer_cb(self):
         h_len = len(self._high_priority_orders)
         n_len = len(self._normal_orders)
-        time_reached_indices_high = []
-        time_reached_indices_normal = []
-        self.get_logger().info(f"{time_reached_indices_high}---- {self._high_priority_orders} --- {self._high_priority_orders_timer}")
-        self.get_logger().info(f"{time_reached_indices_normal}---- {self._normal_orders} --- {self._normal_orders_timer} ---- {self._order_processing_flag}")
-        if(h_len > 0 and self._order_processing_flag == False ):
+        
+        self.get_logger().info(f"{self._time_reached_indices_high}---- {self._high_priority_orders} --- {self._high_priority_orders_timer}")
+        self.get_logger().info(f"{self._time_reached_indices_normal}---- {self._normal_orders} --- {self._normal_orders_timer} ")
+        if(h_len > 0 and self._order_processing_flag==False):
             for i in range(h_len):
                 self._high_priority_orders_timer[i] += 1
                 if(self._high_priority_orders_timer[i] == 15):
-                    time_reached_indices_high.append(i)
-            if(len(time_reached_indices_high)>0):
-                for i in time_reached_indices_high:
+                    self._time_reached_indices_high.append(i)
+            if(len(self._time_reached_indices_high)>0):
+                for i in self._time_reached_indices_high:
                     self._high_priority_orders_timer.pop(i)
-                    ord_to_process = self._high_priority_orders.pop(i)
-                    self._process_order(ord_to_process)
-                    self.get_logger().info(f"Returned {self._order_processing_flag}")
-        elif (n_len > 0 and self._order_processing_flag == False):
+                    # ord_to_process = self._high_priority_orders.pop(i)
+                    ord_to_process = "h"+str(i)
+                    self._string_msg = String()
+                    self._string_msg.data = ord_to_process
+                    self._order_processing_publisher.publish(self._string_msg)
+                self._time_reached_indices_high =[]
+        elif (n_len > 0 and self._order_processing_flag==False):
             for i in range(n_len):
                 self._normal_orders_timer[i] += 1
                 if(self._normal_orders_timer[i] == 15):
-                    time_reached_indices_normal.append(i)
-            if(len(time_reached_indices_normal)>0):
-                for i in time_reached_indices_normal:
+                    self._time_reached_indices_normal.append(i)
+            if(len(self._time_reached_indices_normal)>0):
+                for i in self._time_reached_indices_normal:
                     self._normal_orders_timer.pop(i)
-                    ord_to_process = self._normal_orders.pop(i)
-                    self._process_order(ord_to_process)
+                    ord_to_process = "n"+str(i)
+                    self._string_msg = String()
+                    self._string_msg.data = ord_to_process
+                    self._order_processing_publisher.publish(self._string_msg)
+                    # ord_to_process = self._normal_orders.pop(i)
+                self._time_reached_indices_normal=[]
+            
+        self.get_logger().info(f"Returned {self._order_processing_flag}")
 
-                
+ 
+
     def _competition_state_cb(self, msg):
         """
         Callback for competition state changes. Starts the end condition checker when order announcements are done.
@@ -303,8 +347,21 @@ class OrderManagement(Node):
         """
         # Define a mapping for AGV locations
         location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
+        # self.get_logger().info(f" AGV Location Poses {msg.location} {msg.velocity} {self._agv_statuses}")
         status = location_status_map.get(msg.location, "OTHER")
-        self._agv_statuses[agv_id] = status
+        if(agv_id not in self._agv_statuses.keys()):
+            self._agv_statuses[agv_id] = status
+        if(self._agv_statuses[agv_id] != status):
+            self._agv_statuses[agv_id] = status
+            if(status == "WAREHOUSE"):
+                if(agv_id==1 and self._agv1_status_value!= status):
+                    self._agv1_status_value = "WAREHOUSE"
+                elif(agv_id==2 and self._agv2_status_value!= status):
+                    self._agv2_status_value = "WAREHOUSE"
+                elif(agv_id==3 and self._agv3_status_value!= status):
+                    self._agv3_status_value = "WAREHOUSE"
+                elif(agv_id==4 and self._agv4_status_value!= status):
+                    self._agv4_status_value = "WAREHOUSE"
 
     def _table_camera_callback(self, message, table_id='Unknown'):
         
@@ -426,7 +483,7 @@ class OrderManagement(Node):
         return pose
     
 
-    def _process_order(self, order):
+    def _process_order(self, msg):
         """
         Process the order by locking the AGV tray, moving the AGV to the station, and submitting the order.
 
@@ -434,6 +491,11 @@ class OrderManagement(Node):
             order (Order): Order object to process
         """
         # Process the order
+        order_priority_str,order_index = msg.data[0],int(msg.data[1])
+        if(order_priority_str=="h"):
+            order = self._high_priority_orders.pop(order_index)
+        elif(order_priority_str=="n"):
+            order = self._normal_orders.pop(order_index)
         self.get_logger().info(f"Processing order: {order._order_id}.")
         self._order_processing_flag = True
         self.get_logger().info("")
@@ -461,7 +523,7 @@ class OrderManagement(Node):
         self.get_logger().info(f" - Orientation (rpy): {tray_orientation}")
         self.get_logger().info(f"Parts:")
         
-        # Get the parts and their poses
+        # # Get the parts and their poses
         parts = order._order_task.parts
         for part in parts:
             type = self._Parts_Dictionary['types'][part.part.type]
@@ -515,7 +577,7 @@ class OrderManagement(Node):
         # Lock the tray to AGV
         self.get_logger().info(f"Lock Tray service called")
         self._lock_trays_client = self.create_client(
-            Trigger, f"/ariac/agv{agv}_lock_tray", callback_group=self._service_group
+            Trigger, f"/ariac/agv{agv}_lock_tray"
         )
         request = Trigger.Request()
         future = self._lock_trays_client.call_async(request)
@@ -538,7 +600,7 @@ class OrderManagement(Node):
         # Move the AGV to the destination
         self.get_logger().info(f"Move AGV service called")
         self._move_agv_client = self.create_client(
-            MoveAGV, f"/ariac/move_agv{agv}", callback_group=self._service_group
+            MoveAGV, f"/ariac/move_agv{agv}"
         )
         request = MoveAGV.Request()
         request.location = destination
@@ -561,14 +623,24 @@ class OrderManagement(Node):
             agv_id (int): ID of the AGV
             order_id (str): ID of the order
         """
+        if(agv_id==1):
+            agv_status = self._agv1_status_value
+        elif(agv_id==2):
+            agv_status = self._agv2_status_value
+        elif(agv_id==3):
+            agv_status = self._agv3_status_value
+        elif(agv_id==4):
+            agv_status = self._agv4_status_value
         self.get_logger().info(f"Submit Order service called")
         self.get_logger().info(f"{self._agv_statuses}")
         # Wait until the AGV is in the warehouse
-        while self._agv_statuses.get(agv_id) != "WAREHOUSE":
-            time.sleep(1)
+        while agv_status != "WAREHOUSE":
+            self.get_logger().info(f"{self._agv_statuses} {agv_id} {agv_status}")
+            # time.sleep(1)
+            pass
 
         self._submit_order_client = self.create_client(
-            SubmitOrder, "/ariac/submit_order", callback_group=self._service_group
+            SubmitOrder, "/ariac/submit_order"
         )
         request = SubmitOrder.Request()
         request.order_id = order_id
@@ -582,40 +654,40 @@ class OrderManagement(Node):
         else:
             self.get_logger().warn(f"Unable to submit order")
 
-    def _check_end_conditions(self):
-        """
-        Periodically check if all orders are processed and AGVs are in warehouse, then end competition.
-        """
-        self.get_logger().info(
-                    "Waiting"
-                )
-        while not self.competition_ended and rclpy.ok():
-            if self._orders_queue.empty() and all(
-                status == "WAREHOUSE" for status in self._agv_statuses.values()
-            ):
-                self.get_logger().info(
-                    "All orders processed and AGVs at destination. Preparing to end competition."
-                )
-                self._end_competition()
-            time.sleep(5)  # Check every 5 seconds
+    # def _check_end_conditions(self):
+    #     """
+    #     Periodically check if all orders are processed and AGVs are in warehouse, then end competition.
+    #     """
+    #     self.get_logger().info(
+    #                 "Waiting"
+    #             )
+    #     while not self.competition_ended and rclpy.ok():
+    #         if self._orders_queue.empty() and all(
+    #             status == "WAREHOUSE" for status in self._agv_statuses.values()
+    #         ):
+    #             self.get_logger().info(
+    #                 "All orders processed and AGVs at destination. Preparing to end competition."
+    #             )
+    #             self._end_competition()
+    #         time.sleep(5)  # Check every 5 seconds
 
-    def _end_competition(self):
-        """
-        End the competition if all conditions are met.
-        """
-        if not self.competition_ended:
-            self.competition_ended = True
-            self.get_logger().info(f"End competition service called")
-            self._end_competition_client = self.create_client(
-                Trigger, "/ariac/end_competition", callback_group=self._service_group
-            )
-            request = Trigger.Request()
-            future = self._end_competition_client.call_async(request)
-            rclpy.spin_until_future_complete(self, future)
+    # def _end_competition(self):
+    #     """
+    #     End the competition if all conditions are met.
+    #     """
+    #     if not self.competition_ended:
+    #         self.competition_ended = True
+    #         self.get_logger().info(f"End competition service called")
+    #         self._end_competition_client = self.create_client(
+    #             Trigger, "/ariac/end_competition"
+    #         )
+    #         request = Trigger.Request()
+    #         future = self._end_competition_client.call_async(request)
+    #         rclpy.spin_until_future_complete(self, future)
 
-            if future.result() is not None:
-                response = future.result()
-                if response:
-                    self.get_logger().info(f"Competition ended")
-            else:
-                self.get_logger().warn(f"Unable to end competition")
+    #         if future.result() is not None:
+    #             response = future.result()
+    #             if response:
+    #                 self.get_logger().info(f"Competition ended")
+    #         else:
+    #             self.get_logger().warn(f"Unable to end competition")
