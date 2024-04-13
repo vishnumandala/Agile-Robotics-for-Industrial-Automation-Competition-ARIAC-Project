@@ -11,7 +11,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from rclpy.callback_groups import ReentrantCallbackGroup
-from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, AdvancedLogicalCameraImage, BasicLogicalCameraImage
+from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, AdvancedLogicalCameraImage
 from ariac_msgs.srv import MoveAGV, SubmitOrder
 from std_srvs.srv import Trigger
 from queue import PriorityQueue
@@ -179,7 +179,7 @@ class OrderManagement(Node):
         )
         
         self.right_bins_camera_subscription = self.create_subscription(
-            BasicLogicalCameraImage,
+            AdvancedLogicalCameraImage,
             "/ariac/sensors/right_bins_camera/image",
             lambda msg: self._bin_camera_callback(msg,'Right'),
             qos_profile=qos_policy,
@@ -214,6 +214,13 @@ class OrderManagement(Node):
             threading.Condition()
         )  # Condition variable for synchronizing order processing
 
+        self._high_priority_orders = []
+        self._normal_orders =[]
+        self._high_priority_orders_timer = [0]*10
+        self._normal_orders_timer = [0]*10
+
+        self._order_priority_timer = self.create_timer(1, self.order_priority_timer_cb, callback_group=self._callback_group)
+
     def _orders_initialization_cb(self, msg):
         """
         Callback for receiving orders.
@@ -225,40 +232,47 @@ class OrderManagement(Node):
         self.get_logger().info(
             f"Received Order: {str(order._order_id)} with priority: {int(order._order_priority)}"
         )
+        
+        if(order._order_priority):
+            self._high_priority_orders.append(order)
+        else:
+            self._normal_orders.append(order)
+        self.get_logger().info(f"HIgh,{self._high_priority_orders}")
+        self.get_logger().info(f"Normal {self._normal_orders}")
+        
+        # with self.processing_lock:
+        #     if (
+        #         msg.priority and self.current_order and self.current_order.waiting
+        #     ):  # High-priority order interrupts the current order
+        #         # Update the elapsed_wait for the current order before pausing
+        #         current_time = time.time()
+        #         if hasattr(self.current_order, "wait_start_time"):
+        #             interrupted_wait = current_time - self.current_order.wait_start_time
+        #             self.current_order.elapsed_wait += interrupted_wait
+        #             self.get_logger().info(
+        #                 f"Order {self.current_order._order_id}: Paused for high-priority order {msg.id}. Total elapsed wait time: {self.current_order.elapsed_wait:.2f} seconds."
+        #             )
+        #         self.current_order.waiting = False  # Pause the current order's waiting
+        #         self._orders_queue.put(
+        #             (1, self.current_order)
+        #         )  # Re-queue the paused order
+        #         self.current_order = order  # Set high-priority order as current order to be processed immediately
+        #     else:
+        #         self._orders_queue.put(
+        #             (1 if msg.priority else 2, order)
+        #         )  # Regular queueing for orders
 
-        with self.processing_lock:
-            if (
-                msg.priority and self.current_order and self.current_order.waiting
-            ):  # High-priority order interrupts the current order
-                # Update the elapsed_wait for the current order before pausing
-                current_time = time.time()
-                if hasattr(self.current_order, "wait_start_time"):
-                    interrupted_wait = current_time - self.current_order.wait_start_time
-                    self.current_order.elapsed_wait += interrupted_wait
-                    self.get_logger().info(
-                        f"Order {self.current_order._order_id}: Paused for high-priority order {msg.id}. Total elapsed wait time: {self.current_order.elapsed_wait:.2f} seconds."
-                    )
-                self.current_order.waiting = False  # Pause the current order's waiting
-                self._orders_queue.put(
-                    (1, self.current_order)
-                )  # Re-queue the paused order
-                self.current_order = order  # Set high-priority order as current order to be processed immediately
-            else:
-                self._orders_queue.put(
-                    (1 if msg.priority else 2, order)
-                )  # Regular queueing for orders
+        #     self.processing_lock.notify()
 
-            self.processing_lock.notify()
-
-        # If no order is currently being processed, start processing
-        if (
-            self._order_processing_thread is None
-            or not self._order_processing_thread.is_alive()
-        ):
-            self._order_processing_thread = threading.Thread(
-                target=self._process_orders
-            )
-            self._order_processing_thread.start()
+        # # If no order is currently being processed, start processing
+        # if (
+        #     self._order_processing_thread is None
+        #     or not self._order_processing_thread.is_alive()
+        # ):
+        #     self._order_processing_thread = threading.Thread(
+        #         target=self._process_orders
+        #     )
+        #     self._order_processing_thread.start()
 
         agv_id = order._order_task.agv_number
         if agv_id not in self._agv_statuses:
@@ -269,21 +283,50 @@ class OrderManagement(Node):
                 QoSProfile(depth=10),
                 callback_group=self._callback_group,
             )
+    def order_priority_timer_cb(self):
+        h_len = len(self._high_priority_orders)
+        n_len = len(self._normal_orders)
+        time_reached_indices_high = []
+        time_reached_indices_normal = []
+        # self.get_logger().info(f"{time_reached_indices_high}---- {self._high_priority_orders} --- {self._high_priority_orders_timer}")
+        # self.get_logger().info(f"{time_reached_indices_normal}---- {self._normal_orders} --- {self._normal_orders_timer}")
+        if(h_len > 0):
+            for i in range(h_len):
+                self._high_priority_orders_timer[i] += 1
+                if(self._high_priority_orders_timer[i] == 15):
+                    time_reached_indices_high.append(i)
+            if(len(time_reached_indices_high)>0):
+                for i in time_reached_indices_high:
+                    self._high_priority_orders_timer.pop(i)
+                    ord_to_process = self._high_priority_orders.pop(i)
+                    self._process_order(ord_to_process)
+        elif (n_len > 0):
+            for i in range(n_len):
+                self._normal_orders_timer[i] += 1
+                if(self._normal_orders_timer[i] == 15):
+                    time_reached_indices_normal.append(i)
+            if(len(time_reached_indices_normal)>0):
+                for i in time_reached_indices_normal:
+                    self._normal_orders_timer.pop(i)
+                    ord_to_process = self._normal_orders.pop(i)
+                    self._process_order(ord_to_process)
 
+                
     def _competition_state_cb(self, msg):
         """
         Callback for competition state changes. Starts the end condition checker when order announcements are done.
         """
         # Start the end condition checker when order announcements are done
-        if msg.competition_state == CompetitionState.ORDER_ANNOUNCEMENTS_DONE:
-            if (
-                self._end_condition_thread is None
-                or not self._end_condition_thread.is_alive()
-            ):
-                self._end_condition_thread = threading.Thread(
-                    target=self._check_end_conditions
-                )
-                self._end_condition_thread.start()
+        self.get_logger().info(f"End wait")
+        # if msg.competition_state == CompetitionState.ORDER_ANNOUNCEMENTS_DONE:
+        #     if (
+        #         self._end_condition_thread is None
+        #         or not self._end_condition_thread.is_alive()
+        #     ):
+        #         self._end_condition_thread = threading.Thread(
+        #             target=self._check_end_conditions
+        #         )
+        #         self._end_condition_thread.start()
 
     def _agv_status_cb(self, msg, agv_id):
         """
@@ -308,10 +351,11 @@ class OrderManagement(Node):
             self.tables_done[table_id] = True
             self._Tray_Dictionary[table_id]={}
             tray_poses = message.tray_poses
+            # self.get_logger().info(f" Tray Poses {tray_poses}")
             if len(tray_poses) > 0:
-                for _ in range(len(tray_poses)):
-                    tray_pose_id = tray_poses[0].id
-
+                for tray in range(len(tray_poses)):
+                    tray_pose_id = tray_poses[tray].id
+                    # self.get_logger().info(f" Tray Poses ID {tray_pose_id}")
                     camera_pose = Pose()
                     camera_pose.position.x = message.sensor_pose.position.x
                     camera_pose.position.y = message.sensor_pose.position.y
@@ -322,18 +366,19 @@ class OrderManagement(Node):
                     camera_pose.orientation.w = message.sensor_pose.orientation.w
 
                     tray_pose = Pose()
-                    tray_pose.position.x = tray_poses[0].pose.position.x
-                    tray_pose.position.y = tray_poses[0].pose.position.y
-                    tray_pose.position.z = tray_poses[0].pose.position.z
-                    tray_pose.orientation.x = tray_poses[0].pose.orientation.x
-                    tray_pose.orientation.y = tray_poses[0].pose.orientation.y
-                    tray_pose.orientation.z = tray_poses[0].pose.orientation.z
-                    tray_pose.orientation.w = tray_poses[0].pose.orientation.w
-
-
+                    tray_pose.position.x = tray_poses[tray].pose.position.x
+                    tray_pose.position.y = tray_poses[tray].pose.position.y
+                    tray_pose.position.z = tray_poses[tray].pose.position.z
+                    tray_pose.orientation.x = tray_poses[tray].pose.orientation.x
+                    tray_pose.orientation.y = tray_poses[tray].pose.orientation.y
+                    tray_pose.orientation.z = tray_poses[tray].pose.orientation.z
+                    tray_pose.orientation.w = tray_poses[tray].pose.orientation.w
                     tray_world_pose = self._multiply_pose(camera_pose, tray_pose)
-
-                    self._Tray_Dictionary[table_id][tray_pose_id]={'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z], 'status':False}
+                    if self._Tray_Dictionary[table_id] is None:
+                        self._Tray_Dictionary[table_id] = {}
+                    else:
+                        self._Tray_Dictionary[table_id].update({tray_pose_id:{'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z], 'status':False}})
+                    # self.get_logger().info(f"    - {self._Tray_Dictionary}")
 
     def _bin_camera_callback(self, message,side='Unknown'):
         
@@ -376,6 +421,8 @@ class OrderManagement(Node):
                 else:
                     self._Bins_Dictionary[side][(type,color)]={}
                     self._Bins_Dictionary[side][(type,color)][0]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z],'picked': False}
+                # self.get_logger().info(f"    - {self._Bins_Dictionary}")
+
 
     def _multiply_pose(self, pose1: Pose, pose2: Pose) -> Pose:
         '''
@@ -616,7 +663,7 @@ class OrderManagement(Node):
             order_id (str): ID of the order
         """
         self.get_logger().info(f"Submit Order service called")
-
+        self.get_logger().info(f"{self._agv_statuses}")
         # Wait until the AGV is in the warehouse
         while self._agv_statuses.get(agv_id) != "WAREHOUSE":
             time.sleep(1)
@@ -628,7 +675,7 @@ class OrderManagement(Node):
         request.order_id = order_id
         future = self._submit_order_client.call_async(request)
         rclpy.spin_until_future_complete(self, future)
-
+        self.get_logger().info(f"After{self._agv_statuses}")
         if future.result() is not None:
             response = future.result()
             if response:
@@ -640,6 +687,9 @@ class OrderManagement(Node):
         """
         Periodically check if all orders are processed and AGVs are in warehouse, then end competition.
         """
+        self.get_logger().info(
+                    "Waiting"
+                )
         while not self.competition_ended and rclpy.ok():
             if self._orders_queue.empty() and all(
                 status == "WAREHOUSE" for status in self._agv_statuses.values()
