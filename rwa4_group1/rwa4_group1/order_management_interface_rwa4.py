@@ -147,7 +147,7 @@ class OrderManagement(Node):
             "/ariac/orders",
             self._orders_initialization_cb,
             qos_profile=qos_policy,
-            callback_group=self._order_callback_group
+            # callback_group=self._order_callback_group
         )
 
         # self.competition_state_subscription = self.create_subscription(
@@ -200,10 +200,10 @@ class OrderManagement(Node):
         
         # Initialize variables
         self.get_logger().info(f"Node {node_name} initialized")
-        self._orders_queue = PriorityQueue()
+        # self._orders_queue = PriorityQueue()
         self._agv_statuses = {}
-        self.current_order = None  # Track the currently processing or waiting order
-        self.competition_ended = False
+        # self.current_order = None  # Track the currently processing or waiting order
+        # self.competition_ended = False
         self.tables_done = {'Left':False,'Right':False}
         self.bins_done = {'Left':False,'Right':False}
         
@@ -220,7 +220,7 @@ class OrderManagement(Node):
         self._high_priority_orders_timer = [0]*10
         self._normal_orders_timer = [0]*10
 
-        self._order_priority_timer = self.create_timer(1, self.order_priority_timer_cb, callback_group=self._order_callback_group)
+        self._order_priority_timer = self.create_timer(1, self.order_priority_timer_cb, callback_group=self._competition_callback_group)
         self._order_processing_publisher = self.create_publisher(String,"/ariac_custom/order",10)
         self._order_processing_subscription= self.create_subscription(String, "/ariac_custom/order", self._process_order,qos_profile=qos_policy,callback_group=self._order_callback_group)
         self._order_processing_flag = False
@@ -229,31 +229,32 @@ class OrderManagement(Node):
         self._agv1_status = self.create_subscription(
                 AGVStatus,
                 f"/ariac/agv1_status",
-                lambda msg: self._agv_status_cb(msg, 1),qos_profile=qos_policy,
+                lambda msg: self._agv1_status_cb(msg, 1),qos_profile=qos_policy,
                 callback_group=self._order_callback_group,
             )
         self._agv2_status = self.create_subscription(
                 AGVStatus,
                 f"/ariac/agv2_status",
-                lambda msg: self._agv_status_cb(msg, 2),qos_profile=qos_policy,
+                lambda msg: self._agv2_status_cb(msg, 2),qos_profile=qos_policy,
                 callback_group=self._order_callback_group,
             )
         self._agv3_status = self.create_subscription(
                 AGVStatus,
                 f"/ariac/agv3_status",
-                lambda msg: self._agv_status_cb(msg, 3),qos_profile=qos_policy,
+                lambda msg: self._agv3_status_cb(msg, 3),qos_profile=qos_policy,
                 callback_group=self._order_callback_group,
             )
         self._agv4_status = self.create_subscription(
                 AGVStatus,
                 f"/ariac/agv4_status",
-                lambda msg: self._agv_status_cb(msg, 4),qos_profile=qos_policy,
+                lambda msg: self._agv4_status_cb(msg, 4),qos_profile=qos_policy,
                 callback_group=self._order_callback_group,
             )        
         self._agv1_status_value = "Kitting Station"
         self._agv2_status_value = "Kitting Station"
         self._agv3_status_value = "Kitting Station"
         self._agv4_status_value = "Kitting Station"
+
     def _orders_initialization_cb(self, msg):
         """
         Callback for receiving orders.
@@ -320,13 +321,13 @@ class OrderManagement(Node):
 
  
 
-    def _competition_state_cb(self, msg):
-        """
-        Callback for competition state changes. Starts the end condition checker when order announcements are done.
-        """
-        # Start the end condition checker when order announcements are done
-        # self.get_logger().info(f"End wait")
-        pass
+    # def _competition_state_cb(self, msg):
+    #     """
+    #     Callback for competition state changes. Starts the end condition checker when order announcements are done.
+    #     """
+    #     # Start the end condition checker when order announcements are done
+    #     # self.get_logger().info(f"End wait")
+    #     pass
         # if msg.competition_state == CompetitionState.ORDER_ANNOUNCEMENTS_DONE:
         #     if (
         #         self._end_condition_thread is None
@@ -337,7 +338,10 @@ class OrderManagement(Node):
         #         )
         #         self._end_condition_thread.start()
 
-    def _agv_status_cb(self, msg, agv_id):
+
+
+
+    def _agv1_status_cb(self, msg, agv_id):
         """
         Callback for AGV status changes. Updates the AGV status in the dictionary.
 
@@ -354,14 +358,90 @@ class OrderManagement(Node):
         if(self._agv_statuses[agv_id] != status):
             self._agv_statuses[agv_id] = status
             if(status == "WAREHOUSE"):
-                if(agv_id==1 and self._agv1_status_value!= status):
+                if(self._agv1_status_value!= status):
                     self._agv1_status_value = "WAREHOUSE"
-                elif(agv_id==2 and self._agv2_status_value!= status):
+    def _agv2_status_cb(self, msg, agv_id):
+        """
+        Callback for AGV status changes. Updates the AGV status in the dictionary.
+
+        Args:
+            msg (any): Message received from the topic
+            agv_id (int): ID of the AGV
+        """
+        # Define a mapping for AGV locations
+        location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
+        self.get_logger().info(f" AGV Location Poses {msg.location} {msg.velocity} {self._agv_statuses}")
+        status = location_status_map.get(msg.location, "OTHER")
+        if(agv_id not in self._agv_statuses.keys()):
+            self._agv_statuses[agv_id] = status
+        if(self._agv_statuses[agv_id] != status):
+            self._agv_statuses[agv_id] = status
+            if(status == "WAREHOUSE"):
+                if(self._agv2_status_value!= status):
                     self._agv2_status_value = "WAREHOUSE"
-                elif(agv_id==3 and self._agv3_status_value!= status):
+    def _agv3_status_cb(self, msg, agv_id):
+        """
+        Callback for AGV status changes. Updates the AGV status in the dictionary.
+
+        Args:
+            msg (any): Message received from the topic
+            agv_id (int): ID of the AGV
+        """
+        # Define a mapping for AGV locations
+        location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
+        # self.get_logger().info(f" AGV Location Poses {msg.location} {msg.velocity} {self._agv_statuses}")
+        status = location_status_map.get(msg.location, "OTHER")
+        if(agv_id not in self._agv_statuses.keys()):
+            self._agv_statuses[agv_id] = status
+        if(self._agv_statuses[agv_id] != status):
+            self._agv_statuses[agv_id] = status
+            if(status == "WAREHOUSE"):
+                if(self._agv3_status_value!= status):
                     self._agv3_status_value = "WAREHOUSE"
-                elif(agv_id==4 and self._agv4_status_value!= status):
+    def _agv4_status_cb(self, msg, agv_id):
+        """
+        Callback for AGV status changes. Updates the AGV status in the dictionary.
+
+        Args:
+            msg (any): Message received from the topic
+            agv_id (int): ID of the AGV
+        """
+        # Define a mapping for AGV locations
+        location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
+        # self.get_logger().info(f" AGV Location Poses {msg.location} {msg.velocity} {self._agv_statuses}")
+        status = location_status_map.get(msg.location, "OTHER")
+        if(agv_id not in self._agv_statuses.keys()):
+            self._agv_statuses[agv_id] = status
+        if(self._agv_statuses[agv_id] != status):
+            self._agv_statuses[agv_id] = status
+            if(status == "WAREHOUSE"):
+                if(self._agv4_status_value!= status):
                     self._agv4_status_value = "WAREHOUSE"
+    # def _agv_status_cb(self, msg, agv_id):
+    #     """
+    #     Callback for AGV status changes. Updates the AGV status in the dictionary.
+
+    #     Args:
+    #         msg (any): Message received from the topic
+    #         agv_id (int): ID of the AGV
+    #     """
+    #     # Define a mapping for AGV locations
+    #     location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
+    #     # self.get_logger().info(f" AGV Location Poses {msg.location} {msg.velocity} {self._agv_statuses}")
+    #     status = location_status_map.get(msg.location, "OTHER")
+    #     if(agv_id not in self._agv_statuses.keys()):
+    #         self._agv_statuses[agv_id] = status
+    #     if(self._agv_statuses[agv_id] != status):
+    #         self._agv_statuses[agv_id] = status
+    #         if(status == "WAREHOUSE"):
+    #             if(agv_id==1 and self._agv1_status_value!= status):
+    #                 self._agv1_status_value = "WAREHOUSE"
+    #             elif(agv_id==2 and self._agv2_status_value!= status):
+    #                 self._agv2_status_value = "WAREHOUSE"
+    #             elif(agv_id==3 and self._agv3_status_value!= status):
+    #                 self._agv3_status_value = "WAREHOUSE"
+    #             elif(agv_id==4 and self._agv4_status_value!= status):
+    #                 self._agv4_status_value = "WAREHOUSE"
 
     def _table_camera_callback(self, message, table_id='Unknown'):
         
@@ -566,6 +646,7 @@ class OrderManagement(Node):
         self._submit_order(agv_id, order._order_id)
         self._order_processing_flag = False
         self.get_logger().info(f"Order {order._order_id} processed and shipped.")
+        self.get_logger().info(f"Process flag {self._order_processing_flag}")
     
 
     def _lock_tray(self, agv):
@@ -632,10 +713,10 @@ class OrderManagement(Node):
         elif(agv_id==4):
             agv_status = self._agv4_status_value
         self.get_logger().info(f"Submit Order service called")
-        self.get_logger().info(f"{self._agv_statuses}")
+        self.get_logger().info(f"{agv_status}")
         # Wait until the AGV is in the warehouse
         while agv_status != "WAREHOUSE":
-            self.get_logger().info(f"{self._agv_statuses} {agv_id} {agv_status}")
+            self.get_logger().info(f"{agv_id} {agv_status}")
             # time.sleep(1)
             pass
 

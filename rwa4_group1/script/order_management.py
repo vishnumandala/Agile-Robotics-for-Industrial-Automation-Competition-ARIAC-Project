@@ -18,10 +18,11 @@ def main(args=None):
     node = OrderManagement("order_management")
     executor = MultiThreadedExecutor()
     executor.add_node(node)
-
+    node.get_logger().info("Spinning Started")
     try:
         executor.spin()
     finally:
+        node.get_logger().warn("Spinning Stopped")
         node.destroy_node()
         rclpy.shutdown()
 
