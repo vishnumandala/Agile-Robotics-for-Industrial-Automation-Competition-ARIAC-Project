@@ -309,8 +309,8 @@ class OrderManagement(Node):
             self._Tray_Dictionary[table_id]={}
             tray_poses = message.tray_poses
             if len(tray_poses) > 0:
-                for _ in range(len(tray_poses)):
-                    tray_pose_id = tray_poses[0].id
+                for i in range(len(tray_poses)):
+                    tray_pose_id = tray_poses[i].id
 
                     camera_pose = Pose()
                     camera_pose.position.x = message.sensor_pose.position.x
