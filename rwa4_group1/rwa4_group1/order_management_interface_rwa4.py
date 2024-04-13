@@ -146,13 +146,13 @@ class OrderManagement(Node):
             callback_group=self._callback_group,
         )
 
-        self.competition_state_subscription = self.create_subscription(
-            CompetitionState,
-            "/ariac/competition_state",
-            self._competition_state_cb,
-            QoSProfile(depth=10),
-            callback_group=self._callback_group,
-        )
+        # self.competition_state_subscription = self.create_subscription(
+        #     CompetitionState,
+        #     "/ariac/competition_state",
+        #     self._competition_state_cb,
+        #     QoSProfile(depth=10),
+        #     callback_group=self._callback_group,
+        # )
 
         self.left_table_camera_subscription = self.create_subscription(
             AdvancedLogicalCameraImage,
@@ -208,11 +208,6 @@ class OrderManagement(Node):
         self._Parts_Dictionary={'colors':{0: 'Red', 1: 'Green', 2: 'Blue', 3: 'Orange', 4: 'Purple'},
                       'types':{10:'Battery', 11:'Pump', 12:'Sensor', 13:'Regulator'}}
 
-        self._order_processing_thread = None
-        self._end_condition_thread = None
-        self.processing_lock = (
-            threading.Condition()
-        )  # Condition variable for synchronizing order processing
 
         self._high_priority_orders = []
         self._normal_orders =[]
@@ -220,7 +215,7 @@ class OrderManagement(Node):
         self._normal_orders_timer = [0]*10
 
         self._order_priority_timer = self.create_timer(1, self.order_priority_timer_cb, callback_group=self._callback_group)
-
+        self._order_processing_flag = False
     def _orders_initialization_cb(self, msg):
         """
         Callback for receiving orders.
@@ -240,39 +235,7 @@ class OrderManagement(Node):
         self.get_logger().info(f"HIgh,{self._high_priority_orders}")
         self.get_logger().info(f"Normal {self._normal_orders}")
         
-        # with self.processing_lock:
-        #     if (
-        #         msg.priority and self.current_order and self.current_order.waiting
-        #     ):  # High-priority order interrupts the current order
-        #         # Update the elapsed_wait for the current order before pausing
-        #         current_time = time.time()
-        #         if hasattr(self.current_order, "wait_start_time"):
-        #             interrupted_wait = current_time - self.current_order.wait_start_time
-        #             self.current_order.elapsed_wait += interrupted_wait
-        #             self.get_logger().info(
-        #                 f"Order {self.current_order._order_id}: Paused for high-priority order {msg.id}. Total elapsed wait time: {self.current_order.elapsed_wait:.2f} seconds."
-        #             )
-        #         self.current_order.waiting = False  # Pause the current order's waiting
-        #         self._orders_queue.put(
-        #             (1, self.current_order)
-        #         )  # Re-queue the paused order
-        #         self.current_order = order  # Set high-priority order as current order to be processed immediately
-        #     else:
-        #         self._orders_queue.put(
-        #             (1 if msg.priority else 2, order)
-        #         )  # Regular queueing for orders
-
-        #     self.processing_lock.notify()
-
-        # # If no order is currently being processed, start processing
-        # if (
-        #     self._order_processing_thread is None
-        #     or not self._order_processing_thread.is_alive()
-        # ):
-        #     self._order_processing_thread = threading.Thread(
-        #         target=self._process_orders
-        #     )
-        #     self._order_processing_thread.start()
+       
 
         agv_id = order._order_task.agv_number
         if agv_id not in self._agv_statuses:
@@ -288,9 +251,9 @@ class OrderManagement(Node):
         n_len = len(self._normal_orders)
         time_reached_indices_high = []
         time_reached_indices_normal = []
-        # self.get_logger().info(f"{time_reached_indices_high}---- {self._high_priority_orders} --- {self._high_priority_orders_timer}")
-        # self.get_logger().info(f"{time_reached_indices_normal}---- {self._normal_orders} --- {self._normal_orders_timer}")
-        if(h_len > 0):
+        self.get_logger().info(f"{time_reached_indices_high}---- {self._high_priority_orders} --- {self._high_priority_orders_timer}")
+        self.get_logger().info(f"{time_reached_indices_normal}---- {self._normal_orders} --- {self._normal_orders_timer} ---- {self._order_processing_flag}")
+        if(h_len > 0 and self._order_processing_flag == False ):
             for i in range(h_len):
                 self._high_priority_orders_timer[i] += 1
                 if(self._high_priority_orders_timer[i] == 15):
@@ -300,7 +263,8 @@ class OrderManagement(Node):
                     self._high_priority_orders_timer.pop(i)
                     ord_to_process = self._high_priority_orders.pop(i)
                     self._process_order(ord_to_process)
-        elif (n_len > 0):
+                    self.get_logger().info(f"Returned {self._order_processing_flag}")
+        elif (n_len > 0 and self._order_processing_flag == False):
             for i in range(n_len):
                 self._normal_orders_timer[i] += 1
                 if(self._normal_orders_timer[i] == 15):
@@ -317,7 +281,8 @@ class OrderManagement(Node):
         Callback for competition state changes. Starts the end condition checker when order announcements are done.
         """
         # Start the end condition checker when order announcements are done
-        self.get_logger().info(f"End wait")
+        # self.get_logger().info(f"End wait")
+        pass
         # if msg.competition_state == CompetitionState.ORDER_ANNOUNCEMENTS_DONE:
         #     if (
         #         self._end_condition_thread is None
@@ -351,7 +316,7 @@ class OrderManagement(Node):
             self.tables_done[table_id] = True
             self._Tray_Dictionary[table_id]={}
             tray_poses = message.tray_poses
-            # self.get_logger().info(f" Tray Poses {tray_poses}")
+            self.get_logger().info(f" Tray Poses {tray_poses}")
             if len(tray_poses) > 0:
                 for tray in range(len(tray_poses)):
                     tray_pose_id = tray_poses[tray].id
@@ -460,24 +425,6 @@ class OrderManagement(Node):
 
         return pose
     
-    def _process_orders(self):
-        """
-        Process all orders in the queue.
-        """
-        if False not in self.tables_done and False not in self.bins_done:
-            self.get_logger().info("All tables and bins are detected. Starting order processing.")
-        while rclpy.ok():
-            with self.processing_lock:
-                while not self.current_order and self._orders_queue.empty():
-                    self.processing_lock.wait()  # Wait for an order to be queued or for the current order to be set
-
-                if (
-                    not self.current_order
-                ):  # No current order, get the next one from the queue
-                    _, self.current_order = self._orders_queue.get()
-
-            # Process the current order (either a new one or a resumed one)
-            self._wait_and_process_current_order()
 
     def _process_order(self, order):
         """
@@ -488,7 +435,7 @@ class OrderManagement(Node):
         """
         # Process the order
         self.get_logger().info(f"Processing order: {order._order_id}.")
-        
+        self._order_processing_flag = True
         self.get_logger().info("")
         self.get_logger().info("-"*50)
         stars=len(order._order_id) + 6
@@ -555,57 +502,9 @@ class OrderManagement(Node):
         self._lock_tray(agv_id)
         self._move_agv(agv_id, order._order_task.destination)
         self._submit_order(agv_id, order._order_id)
+        self._order_processing_flag = False
         self.get_logger().info(f"Order {order._order_id} processed and shipped.")
-
-    def _wait_and_process_current_order(self):
-        """
-        Wait for the current order's waiting period to finish, then process the order.
-        """
-        order = self.current_order
-        if order.elapsed_wait > 0:
-            # Calculate the remaining wait time for a resuming order
-            remaining_wait = max(15 - order.elapsed_wait, 0)
-            self.get_logger().info(
-                f"Order {order._order_id} resuming wait with {remaining_wait:.2f} seconds remaining."
-            )
-        else:
-            # Full wait time for a first-time wait
-            remaining_wait = 15
-        order.wait_start_time = time.time()
-
-        order.waiting = True  # Ensure order.waiting is set to True whether it's a new wait or a resumed one
-        self.get_logger().info(
-            f"Order {order._order_id}: Waiting for {remaining_wait:.2f} seconds before processing."
-        )
-
-        while remaining_wait > 0:
-            start_wait = time.time()
-            time.sleep(min(0.1, remaining_wait))
-            with self.processing_lock:
-                if not order.waiting:
-                    # If the order's waiting is interrupted, adjust the elapsed wait time and pause the wait
-                    paused_wait = time.time() - start_wait
-                    order.elapsed_wait += paused_wait
-                    self.get_logger().info(
-                        f"Order {order._order_id}: Wait paused at {paused_wait:.2f} seconds. Total elapsed wait time: {order.elapsed_wait:.2f} seconds."
-                    )
-                    return  # Exit the wait loop if the order is paused
-
-            actual_waited = time.time() - start_wait
-            remaining_wait -= actual_waited
-
-        total_waited = time.time() - order.wait_start_time
-        order.elapsed_wait += total_waited  # Update the total elapsed wait time
-        order.waiting = False  # Set waiting to False after the wait is completed
-
-        self.get_logger().info(
-            f"Order {order._order_id}: Total elapsed wait time before processing: {order.elapsed_wait:.2f} seconds."
-        )
-        self._process_order(order)  # Proceed to process the order
-
-        with self.processing_lock:
-            self.current_order = None  # Clear the current order after processing
-            self.processing_lock.notify()  # Notify potentially waiting threads that the current order has been processed
+    
 
     def _lock_tray(self, agv):
         """Function to lock the tray
