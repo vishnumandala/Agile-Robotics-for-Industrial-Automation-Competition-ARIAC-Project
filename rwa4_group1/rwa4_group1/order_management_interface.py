@@ -322,13 +322,13 @@ class OrderManagement(Node):
                     camera_pose.orientation.w = message.sensor_pose.orientation.w
 
                     tray_pose = Pose()
-                    tray_pose.position.x = tray_poses[0].pose.position.x
-                    tray_pose.position.y = tray_poses[0].pose.position.y
-                    tray_pose.position.z = tray_poses[0].pose.position.z
-                    tray_pose.orientation.x = tray_poses[0].pose.orientation.x
-                    tray_pose.orientation.y = tray_poses[0].pose.orientation.y
-                    tray_pose.orientation.z = tray_poses[0].pose.orientation.z
-                    tray_pose.orientation.w = tray_poses[0].pose.orientation.w
+                    tray_pose.position.x = tray_poses[i].pose.position.x
+                    tray_pose.position.y = tray_poses[i].pose.position.y
+                    tray_pose.position.z = tray_poses[i].pose.position.z
+                    tray_pose.orientation.x = tray_poses[i].pose.orientation.x
+                    tray_pose.orientation.y = tray_poses[i].pose.orientation.y
+                    tray_pose.orientation.z = tray_poses[i].pose.orientation.z
+                    tray_pose.orientation.w = tray_poses[i].pose.orientation.w
 
 
                     tray_world_pose = self._multiply_pose(camera_pose, tray_pose)
