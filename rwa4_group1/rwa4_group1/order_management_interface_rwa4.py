@@ -140,14 +140,14 @@ class OrderManagement(Node):
         # Subscriptions
         qos_policy = rclpy.qos.QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
                                           history=rclpy.qos.HistoryPolicy.KEEP_LAST,
-                                          depth=10)
+                                          depth=1)
 
         self.orders_subscription = self.create_subscription(
             OrderMsg,
             "/ariac/orders",
             self._orders_initialization_cb,
             qos_profile=qos_policy,
-            # callback_group=self._order_callback_group
+            callback_group=self._order_callback_group
         )
 
         # self.competition_state_subscription = self.create_subscription(
@@ -220,9 +220,9 @@ class OrderManagement(Node):
         self._high_priority_orders_timer = [0]*10
         self._normal_orders_timer = [0]*10
 
-        self._order_priority_timer = self.create_timer(1, self.order_priority_timer_cb, callback_group=self._competition_callback_group)
-        self._order_processing_publisher = self.create_publisher(String,"/ariac_custom/order",10)
-        self._order_processing_subscription= self.create_subscription(String, "/ariac_custom/order", self._process_order,qos_profile=qos_policy,callback_group=self._order_callback_group)
+        # self._order_priority_timer = self.create_timer(1, self.order_priority_timer_cb, callback_group=self._competition_callback_group)
+        # self._order_processing_publisher = self.create_publisher(String,"/ariac_custom/order",10)
+        # self._order_processing_subscription= self.create_subscription(String, "/ariac_custom/order", self._process_order,qos_profile=qos_policy,callback_group=self._order_callback_group)
         self._order_processing_flag = False
 
 
@@ -269,8 +269,10 @@ class OrderManagement(Node):
         
         if(order._order_priority):
             self._high_priority_orders.append(order)
+            self._process_order(order)
         else:
             self._normal_orders.append(order)
+            self._process_order(order)
         self.get_logger().info(f"HIgh,{self._high_priority_orders}")
         self.get_logger().info(f"Normal {self._normal_orders}")
         
@@ -282,42 +284,42 @@ class OrderManagement(Node):
         #         lambda msg: self._agv_status_cb(msg, agv_id),
         #         callback_group=self._agv_callback_group,
         #     )
-    def order_priority_timer_cb(self):
-        h_len = len(self._high_priority_orders)
-        n_len = len(self._normal_orders)
+    # def order_priority_timer_cb(self):
+    #     h_len = len(self._high_priority_orders)
+    #     n_len = len(self._normal_orders)
         
-        self.get_logger().info(f"{self._time_reached_indices_high}---- {self._high_priority_orders} --- {self._high_priority_orders_timer}")
-        self.get_logger().info(f"{self._time_reached_indices_normal}---- {self._normal_orders} --- {self._normal_orders_timer} ")
-        if(h_len > 0 and self._order_processing_flag==False):
-            for i in range(h_len):
-                self._high_priority_orders_timer[i] += 1
-                if(self._high_priority_orders_timer[i] == 15):
-                    self._time_reached_indices_high.append(i)
-            if(len(self._time_reached_indices_high)>0):
-                for i in self._time_reached_indices_high:
-                    self._high_priority_orders_timer.pop(i)
-                    # ord_to_process = self._high_priority_orders.pop(i)
-                    ord_to_process = "h"+str(i)
-                    self._string_msg = String()
-                    self._string_msg.data = ord_to_process
-                    self._order_processing_publisher.publish(self._string_msg)
-                self._time_reached_indices_high =[]
-        elif (n_len > 0 and self._order_processing_flag==False):
-            for i in range(n_len):
-                self._normal_orders_timer[i] += 1
-                if(self._normal_orders_timer[i] == 15):
-                    self._time_reached_indices_normal.append(i)
-            if(len(self._time_reached_indices_normal)>0):
-                for i in self._time_reached_indices_normal:
-                    self._normal_orders_timer.pop(i)
-                    ord_to_process = "n"+str(i)
-                    self._string_msg = String()
-                    self._string_msg.data = ord_to_process
-                    self._order_processing_publisher.publish(self._string_msg)
-                    # ord_to_process = self._normal_orders.pop(i)
-                self._time_reached_indices_normal=[]
+    #     # self.get_logger().info(f"{self._time_reached_indices_high}---- {self._high_priority_orders} --- {self._high_priority_orders_timer}")
+    #     # self.get_logger().info(f"{self._time_reached_indices_normal}---- {self._normal_orders} --- {self._normal_orders_timer} ")
+    #     if(h_len > 0 and self._order_processing_flag==False):
+    #         for i in range(h_len):
+    #             self._high_priority_orders_timer[i] += 1
+    #             if(self._high_priority_orders_timer[i] == 15):
+    #                 self._time_reached_indices_high.append(i)
+    #         if(len(self._time_reached_indices_high)>0):
+    #             for i in self._time_reached_indices_high:
+    #                 self._high_priority_orders_timer.pop(i)
+    #                 # ord_to_process = self._high_priority_orders.pop(i)
+    #                 ord_to_process = "h"+str(i)
+    #                 self._string_msg = String()
+    #                 self._string_msg.data = ord_to_process
+    #                 self._order_processing_publisher.publish(self._string_msg)
+    #             self._time_reached_indices_high =[]
+    #     elif (n_len > 0 and self._order_processing_flag==False):
+    #         for i in range(n_len):
+    #             self._normal_orders_timer[i] += 1
+    #             if(self._normal_orders_timer[i] == 15):
+    #                 self._time_reached_indices_normal.append(i)
+    #         if(len(self._time_reached_indices_normal)>0):
+    #             for i in self._time_reached_indices_normal:
+    #                 self._normal_orders_timer.pop(i)
+    #                 ord_to_process = "n"+str(i)
+    #                 self._string_msg = String()
+    #                 self._string_msg.data = ord_to_process
+    #                 self._order_processing_publisher.publish(self._string_msg)
+    #                 # ord_to_process = self._normal_orders.pop(i)
+    #             self._time_reached_indices_normal=[]
             
-        self.get_logger().info(f"Returned {self._order_processing_flag}")
+    #     self.get_logger().info(f"Returned {self._order_processing_flag}")
 
  
 
@@ -353,13 +355,9 @@ class OrderManagement(Node):
         location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
         # self.get_logger().info(f" AGV Location Poses {msg.location} {msg.velocity} {self._agv_statuses}")
         status = location_status_map.get(msg.location, "OTHER")
-        if(agv_id not in self._agv_statuses.keys()):
-            self._agv_statuses[agv_id] = status
-        if(self._agv_statuses[agv_id] != status):
-            self._agv_statuses[agv_id] = status
-            if(status == "WAREHOUSE"):
-                if(self._agv1_status_value!= status):
-                    self._agv1_status_value = "WAREHOUSE"
+        if(self._agv1_status_value!= status):
+            self._agv1_status_value = status
+
     def _agv2_status_cb(self, msg, agv_id):
         """
         Callback for AGV status changes. Updates the AGV status in the dictionary.
@@ -370,15 +368,11 @@ class OrderManagement(Node):
         """
         # Define a mapping for AGV locations
         location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
-        self.get_logger().info(f" AGV Location Poses {msg.location} {msg.velocity} {self._agv_statuses}")
+        # self.get_logger().info(f" AGV Location Poses {msg.location} {msg.velocity} {self._agv_statuses}")
         status = location_status_map.get(msg.location, "OTHER")
-        if(agv_id not in self._agv_statuses.keys()):
-            self._agv_statuses[agv_id] = status
-        if(self._agv_statuses[agv_id] != status):
-            self._agv_statuses[agv_id] = status
-            if(status == "WAREHOUSE"):
-                if(self._agv2_status_value!= status):
-                    self._agv2_status_value = "WAREHOUSE"
+        if(self._agv2_status_value!= status):
+            self._agv2_status_value = status
+
     def _agv3_status_cb(self, msg, agv_id):
         """
         Callback for AGV status changes. Updates the AGV status in the dictionary.
@@ -391,13 +385,9 @@ class OrderManagement(Node):
         location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
         # self.get_logger().info(f" AGV Location Poses {msg.location} {msg.velocity} {self._agv_statuses}")
         status = location_status_map.get(msg.location, "OTHER")
-        if(agv_id not in self._agv_statuses.keys()):
-            self._agv_statuses[agv_id] = status
-        if(self._agv_statuses[agv_id] != status):
-            self._agv_statuses[agv_id] = status
-            if(status == "WAREHOUSE"):
-                if(self._agv3_status_value!= status):
-                    self._agv3_status_value = "WAREHOUSE"
+        if(self._agv3_status_value!= status):
+            self._agv3_status_value = status
+
     def _agv4_status_cb(self, msg, agv_id):
         """
         Callback for AGV status changes. Updates the AGV status in the dictionary.
@@ -410,13 +400,10 @@ class OrderManagement(Node):
         location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
         # self.get_logger().info(f" AGV Location Poses {msg.location} {msg.velocity} {self._agv_statuses}")
         status = location_status_map.get(msg.location, "OTHER")
-        if(agv_id not in self._agv_statuses.keys()):
-            self._agv_statuses[agv_id] = status
-        if(self._agv_statuses[agv_id] != status):
-            self._agv_statuses[agv_id] = status
-            if(status == "WAREHOUSE"):
-                if(self._agv4_status_value!= status):
-                    self._agv4_status_value = "WAREHOUSE"
+        if(self._agv4_status_value!= status):
+            self._agv4_status_value = status
+
+
     # def _agv_status_cb(self, msg, agv_id):
     #     """
     #     Callback for AGV status changes. Updates the AGV status in the dictionary.
@@ -571,11 +558,13 @@ class OrderManagement(Node):
             order (Order): Order object to process
         """
         # Process the order
-        order_priority_str,order_index = msg.data[0],int(msg.data[1])
-        if(order_priority_str=="h"):
-            order = self._high_priority_orders.pop(order_index)
-        elif(order_priority_str=="n"):
-            order = self._normal_orders.pop(order_index)
+        # order_priority_str,order_index = msg.data[0],int(msg.data[1])
+        # if(order_priority_str=="h"):
+        #     order = self._high_priority_orders.pop(order_index)
+        # elif(order_priority_str=="n"):
+        #     order = self._normal_orders.pop(order_index)
+
+        order = msg
         self.get_logger().info(f"Processing order: {order._order_id}.")
         self._order_processing_flag = True
         self.get_logger().info("")
@@ -696,6 +685,7 @@ class OrderManagement(Node):
             self.get_logger().warn(f"Service call failed {future.exception()}")
             self.get_logger().warn(f"Failed to move AGV: {agv} to {destination}")
 
+
     def _submit_order(self, agv_id, order_id):
         """
         Submit the order to the competition.
@@ -704,21 +694,29 @@ class OrderManagement(Node):
             agv_id (int): ID of the AGV
             order_id (str): ID of the order
         """
-        if(agv_id==1):
-            agv_status = self._agv1_status_value
-        elif(agv_id==2):
-            agv_status = self._agv2_status_value
-        elif(agv_id==3):
-            agv_status = self._agv3_status_value
-        elif(agv_id==4):
-            agv_status = self._agv4_status_value
-        self.get_logger().info(f"Submit Order service called")
-        self.get_logger().info(f"{agv_status}")
-        # Wait until the AGV is in the warehouse
-        while agv_status != "WAREHOUSE":
-            self.get_logger().info(f"{agv_id} {agv_status}")
-            # time.sleep(1)
+        for i in range(50):
             pass
+        
+        self.get_logger().info(f"Submit Order service called")
+        # self.get_logger().info(f"{self._agv_status_names[agv_id]}")
+        # Wait until the AGV is in the warehouse
+
+        # if (agv_id ==1):
+        #     while self._agv1_status_value != "WAREHOUSE":
+        #         self.get_logger().info(f"{agv_id} {self._agv1_status_value}")
+        #         pass
+        # elif (agv_id ==2):
+        #     while self._agv2_status_value != "WAREHOUSE":
+        #         self.get_logger().info(f"{agv_id} {self._agv2_status_value}")
+        #         pass
+        # elif (agv_id ==3):
+        #     while self._agv3_status_value != "WAREHOUSE":
+        #         self.get_logger().info(f"{agv_id} {self._agv3_status_value}")
+        #         pass
+        # elif (agv_id ==4):
+        #     while self._agv4_status_value != "WAREHOUSE":
+        #         self.get_logger().info(f"{agv_id} {self._agv4_status_value}")
+        #         pass
 
         self._submit_order_client = self.create_client(
             SubmitOrder, "/ariac/submit_order"
