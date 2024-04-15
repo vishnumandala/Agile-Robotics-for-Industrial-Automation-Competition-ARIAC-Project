@@ -21,14 +21,18 @@ Task 8 - Python
 5. Vishnu Mandala
 ## Instructions
 
-- Clone the package to the ariac workspace / copy the folder rwa3_group1 into ariac_ws
+
+- Clone the package to the ariac workspace / copy the folder rwa4_group1 into ariac_ws
 - Add the `rwa4_spring2024.yaml` file to your `ariac_gazebo` package in `config/trails/`
 - Build the workspace and source using following commands
 ```bash
+    # Install YOLO library
+    sudo pip install ultralytics
+    # Source ros2
     source /opt/ros/galactic/setup.bash
-    # Move to ariac directory:
+    # Move to ariac directory
     cd ariac_ws 
-    # To install all the dependencies:
+    # To install all the dependencies
     rosdep install --from-paths src -y --ignore-src
     # Build all packages i.e. ariac and rwa because '.yaml' file has 
     # been added to ariac and a new package of rwa needs to be built.

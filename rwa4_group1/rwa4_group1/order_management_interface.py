@@ -11,11 +11,17 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from rclpy.callback_groups import ReentrantCallbackGroup
-from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, AdvancedLogicalCameraImage, BasicLogicalCameraImage
+from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, BasicLogicalCameraImage
 from ariac_msgs.srv import MoveAGV, SubmitOrder
 from std_srvs.srv import Trigger
 from queue import PriorityQueue
 from geometry_msgs.msg import Pose
+from sensor_msgs.msg import Image
+from launch_ros.substitutions import FindPackageShare
+from cv_bridge import CvBridge, CvBridgeError
+from ultralytics import YOLO
+import numpy as np
+import cv2 as cv
 import time
 import threading
 import PyKDL
@@ -133,20 +139,14 @@ class OrderManagement(Node):
         self._callback_group = ReentrantCallbackGroup()
         self._service_group = ReentrantCallbackGroup()
 
+        self.pkg_share = FindPackageShare("rwa4_group1").find("rwa4_group1")
+        
         # Subscriptions
         qos_policy = rclpy.qos.QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
                                           history=rclpy.qos.HistoryPolicy.KEEP_LAST,
-                                          depth=1)
+                                          depth=10)
 
-        self.orders_subscription = self.create_subscription(
-            OrderMsg,
-            "/ariac/orders",
-            self._orders_initialization_cb,
-            QoSProfile(depth=10),
-            callback_group=self._callback_group,
-        )
-
-        self.competition_state_subscription = self.create_subscription(
+        self._competition_state_subscription = self.create_subscription(
             CompetitionState,
             "/ariac/competition_state",
             self._competition_state_cb,
@@ -154,31 +154,31 @@ class OrderManagement(Node):
             callback_group=self._callback_group,
         )
 
-        self.left_table_camera_subscription = self.create_subscription(
-            AdvancedLogicalCameraImage,
+        self._left_table_camera_subscription = self.create_subscription(
+            BasicLogicalCameraImage,
             "/ariac/sensors/left_table_camera/image",
             lambda msg: self._table_camera_callback(msg,'Left'),
             qos_profile=qos_policy,
             callback_group=self._callback_group,
         )
         
-        self.right_table_camera_subscription = self.create_subscription(
-            AdvancedLogicalCameraImage,
+        self._right_table_camera_subscription = self.create_subscription(
+            BasicLogicalCameraImage,
             "/ariac/sensors/right_table_camera/image",
             lambda msg: self._table_camera_callback(msg,'Right'),
             qos_profile=qos_policy,
             callback_group=self._callback_group,
         )
         
-        self.left_bins_camera_subscription = self.create_subscription(
-            AdvancedLogicalCameraImage,
+        self._left_bins_camera_subscription = self.create_subscription(
+            BasicLogicalCameraImage,
             "/ariac/sensors/left_bins_camera/image",
             lambda msg: self._bin_camera_callback(msg,'Left'),
             qos_profile=qos_policy,
             callback_group=self._callback_group,
         )
         
-        self.right_bins_camera_subscription = self.create_subscription(
+        self._right_bins_camera_subscription = self.create_subscription(
             BasicLogicalCameraImage,
             "/ariac/sensors/right_bins_camera/image",
             lambda msg: self._bin_camera_callback(msg,'Right'),
@@ -186,13 +186,58 @@ class OrderManagement(Node):
             callback_group=self._callback_group,
         )
         
+        self._right_table_rgb_subscription = self.create_subscription(
+            Image,
+            "/ariac/sensors/right_table_camera_rgb/rgb_image",
+            lambda msg: self._table_tray_callback(msg,'Right'),
+            QoSProfile(depth=10),
+            callback_group=self._callback_group,
+        )
+        
+        self._left_table_rgb_subscription = self.create_subscription(
+            Image,
+            "/ariac/sensors/left_table_camera_rgb/rgb_image",
+            lambda msg: self._table_tray_callback(msg,'Left'),
+            QoSProfile(depth=10),
+            callback_group=self._callback_group,
+        )
+        
+        self._right_bins_rgb_subscription = self.create_subscription(
+            Image,
+            "/ariac/sensors/right_bins_camera_rgb/rgb_image",
+            lambda msg: self._bin_part_callback(msg,'Right'),
+            QoSProfile(depth=10),
+            callback_group=self._callback_group,
+        )
+        
+        self._left_bins_rgb_subscription = self.create_subscription(
+            Image,
+            "/ariac/sensors/left_bins_camera_rgb/rgb_image",
+            lambda msg: self._bin_part_callback(msg,'Left'),
+            QoSProfile(depth=10),
+            callback_group=self._callback_group,
+        )
+        
+        self._orders_subscription = self.create_subscription(
+            OrderMsg,
+            "/ariac/orders",
+            self._orders_initialization_cb,
+            QoSProfile(depth=10),
+            callback_group=self._callback_group,
+        )
+
         # To prevent unused variable warning
-        self.orders_subscription
-        self.competition_state_subscription
-        self.left_table_camera_subscription
-        self.right_table_camera_subscription
-        self.left_bins_camera_subscription
-        self.right_bins_camera_subscription
+        self._competition_state_subscription
+        self._left_table_camera_subscription
+        self._right_table_camera_subscription
+        self._left_bins_camera_subscription
+        self._right_bins_camera_subscription
+        self._right_table_rgb_subscription
+        self._left_table_rgb_subscription
+        self._right_bins_rgb_subscription
+        self._left_bins_rgb_subscription
+        self._orders_subscription
+        
         
         # Initialize variables
         self.get_logger().info(f"Node {node_name} initialized")
@@ -200,8 +245,13 @@ class OrderManagement(Node):
         self._agv_statuses = {}
         self.current_order = None  # Track the currently processing or waiting order
         self.competition_ended = False
-        self.tables_done = {'Left':False,'Right':False}
-        self.bins_done = {'Left':False,'Right':False}
+        self.tables_done = {'Left':False,'Right':False,'Left Rgb':False,'Right Rgb':False}
+        self.bins_done = {'Left':False,'Right':False,'Left Rgb':False,'Right Rgb':False}
+        self.trays={'Left':{},'Right':{}} # To store the tray ids
+        self.parts={'Left':{},'Right':{}} # To store the part types and colors
+        
+        # Initialize YOLO model
+        self._model = YOLO(f'{self.pkg_share}/dataset/yolo/best.pt')
         
         self._Tray_Dictionary = {}
         self._Bins_Dictionary = {}
@@ -298,20 +348,27 @@ class OrderManagement(Node):
         status = location_status_map.get(msg.location, "OTHER")
         self._agv_statuses[agv_id] = status
 
-    def _table_camera_callback(self, message, table_id='Unknown'):
+    def _table_camera_callback(self, message, side='Unknown'):
+        """ Callback for table camera images. Detects poses of the trays on the table and updates the tray dictionary.
+
+        Args:
+            message (BasicLogicalCameraImage): Message received from the topic
+            side (str, optional): Side of the table. Defaults to 'Unknown'.
+        """
         
-        if table_id == 'Unknown':
+        if side == 'Unknown':
             self.get_logger().warn("Unknown table ID")
             return
         
-        if self.tables_done[table_id] == False:
-            self.tables_done[table_id] = True
-            self._Tray_Dictionary[table_id]={}
+        if self.tables_done[side] == False and self.tables_done[side+' Rgb'] == True:
+            
+            self.tables_done[side] = True
+            self._Tray_Dictionary[side]={}
             tray_poses = message.tray_poses
             if len(tray_poses) > 0:
                 for i in range(len(tray_poses)):
-                    tray_pose_id = tray_poses[i].id
-
+                    tray_pose_id = self.trays[side][i]
+                    
                     camera_pose = Pose()
                     camera_pose.position.x = message.sensor_pose.position.x
                     camera_pose.position.y = message.sensor_pose.position.y
@@ -322,26 +379,95 @@ class OrderManagement(Node):
                     camera_pose.orientation.w = message.sensor_pose.orientation.w
 
                     tray_pose = Pose()
-                    tray_pose.position.x = tray_poses[i].pose.position.x
-                    tray_pose.position.y = tray_poses[i].pose.position.y
-                    tray_pose.position.z = tray_poses[i].pose.position.z
-                    tray_pose.orientation.x = tray_poses[i].pose.orientation.x
-                    tray_pose.orientation.y = tray_poses[i].pose.orientation.y
-                    tray_pose.orientation.z = tray_poses[i].pose.orientation.z
-                    tray_pose.orientation.w = tray_poses[i].pose.orientation.w
+                    tray_pose.position.x = tray_poses[i].position.x
+                    tray_pose.position.y = tray_poses[i].position.y
+                    tray_pose.position.z = tray_poses[i].position.z
+                    tray_pose.orientation.x = tray_poses[i].orientation.x
+                    tray_pose.orientation.y = tray_poses[i].orientation.y
+                    tray_pose.orientation.z = tray_poses[i].orientation.z
+                    tray_pose.orientation.w = tray_poses[i].orientation.w
 
 
                     tray_world_pose = self._multiply_pose(camera_pose, tray_pose)
 
-                    self._Tray_Dictionary[table_id][tray_pose_id]={'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z], 'status':False}
+                    self._Tray_Dictionary[side][tray_pose_id]={'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z], 'status':False}
 
+    def _table_tray_callback(self, message, side='Unknown'):
+        """
+        Callback for table camera images. Detects trays on the table and updates the tray dictionary.
+
+        Args:
+            message (Image): Image message from the camera
+            side (str, optional): Side of the table. Defaults to 'Unknown'.
+        """
+        if side == 'Unknown':
+            self.get_logger().warn("Unknown side ID")
+            return
+        
+        # Check if RGB processing is already done to avoid re-processing
+        if self.tables_done[side+' Rgb'] == False:
+            self.tables_done[side+' Rgb'] = True
+
+            # Placeholder for detected trays
+            detected_trays = set()
+            
+            # Detecting aruco markers
+            bridge = CvBridge()
+
+            try:
+                cv_image = bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
+            except CvBridgeError as e:
+                self.get_logger().error(e)
+            image = cv_image
+            image = image[210:245, 50:590]
+            image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+            
+            # Edge detection on the image
+            edges = cv.Canny(image, 50, 150)
+            
+            # Loop through template images of the aruco markers
+            for i in range(10):
+                template_image_path = f'{self.pkg_share}/dataset/aruco/id_{i}.png'  
+                template_image = cv.imread(template_image_path, cv.IMREAD_GRAYSCALE)
+                template_image = cv.resize(template_image, (35, 35))
+                
+                # Edge detection on the template image
+                edges_template = cv.Canny(template_image, 50, 150)
+
+                # Template matching
+                res = cv.matchTemplate(edges, edges_template, cv.TM_CCOEFF_NORMED)
+                threshold = 0.3
+                loc = np.where(res >= threshold)
+                for pt in zip(*loc[::-1]):
+                    cv.rectangle(image, pt, (pt[0] + 35, pt[1] + 35), (0, 255, 0), 2)
+                    detected_trays.add((i,pt))
+            
+            # Sorting ids based on location of the tray
+            detected_trays = sorted(detected_trays, key=lambda x: x[1][0])  
+            
+            trays=[]
+            for i in range(len(detected_trays)):
+                if i == 0:
+                    trays.append(detected_trays[i][0])
+                else:
+                    if detected_trays[i][1][0] - detected_trays[i-1][1][0] > 35:
+                        trays.append(detected_trays[i][0])
+
+            self.trays[side] = trays
+                
     def _bin_camera_callback(self, message,side='Unknown'):
+        """ Callback for bin camera images. Detects poses of the parts in the bins and updates the parts dictionary.
+
+        Args:
+            message (BasicLogicalCameraImage): Message received from the topic
+            side (str, optional): _description_. Defaults to 'Unknown'.
+        """
         
         if side == 'Unknown':
             self.get_logger().warn("Unknown side ID")
             return
         
-        if self.bins_done[side] == False:
+        if self.bins_done[side] == False and self.bins_done[side+' Rgb'] == True:
             self.bins_done[side] = True
             bin_poses = message.part_poses
             bin_camera_pose = Pose()
@@ -355,19 +481,19 @@ class OrderManagement(Node):
 
             self._Bins_Dictionary[side]={}
             for i in range(len(bin_poses)):
-                bin_part = bin_poses[i].part
+                bin_part = self.parts[side][i]
                 bin_part_pose = Pose()
-                bin_part_pose.position.x = bin_poses[i].pose.position.x
-                bin_part_pose.position.y = bin_poses[i].pose.position.y
-                bin_part_pose.position.z = bin_poses[i].pose.position.z
-                bin_part_pose.orientation.x = bin_poses[i].pose.orientation.x
-                bin_part_pose.orientation.y = bin_poses[i].pose.orientation.y
-                bin_part_pose.orientation.z = bin_poses[i].pose.orientation.z
-                bin_part_pose.orientation.w = bin_poses[i].pose.orientation.w
+                bin_part_pose.position.x = bin_poses[i].position.x
+                bin_part_pose.position.y = bin_poses[i].position.y
+                bin_part_pose.position.z = bin_poses[i].position.z
+                bin_part_pose.orientation.x = bin_poses[i].orientation.x
+                bin_part_pose.orientation.y = bin_poses[i].orientation.y
+                bin_part_pose.orientation.z = bin_poses[i].orientation.z
+                bin_part_pose.orientation.w = bin_poses[i].orientation.w
 
                 bin_world_pose = self._multiply_pose(bin_camera_pose, bin_part_pose)
-                type = self._Parts_Dictionary['types'][bin_part.type]
-                color = self._Parts_Dictionary['colors'][bin_part.color]
+                type = bin_part[1]
+                color = bin_part[0]
                 
                 if (type,color) in self._Bins_Dictionary[side].keys():
                     keys=self._Bins_Dictionary[side][(type,color)].keys()
@@ -376,6 +502,95 @@ class OrderManagement(Node):
                 else:
                     self._Bins_Dictionary[side][(type,color)]={}
                     self._Bins_Dictionary[side][(type,color)][0]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z],'picked': False}
+
+    def _bin_part_callback(self, message, side='Unknown'):
+        """ Callback for bin camera images. Detects parts in the bins and updates the parts dictionary.
+
+        Args:
+            message (Image): Image message from the camera
+            side (str, optional): Side of the bin. Defaults to 'Unknown'.
+        """
+
+        if side == 'Unknown':
+            self.get_logger().warn("Unknown side ID")
+            return
+        
+        # Check if RGB processing is already done to avoid re-processing
+        if self.bins_done[side+' Rgb'] == False:
+            self.bins_done[side+' Rgb'] = True
+            
+            # Detecting Parts
+            bridge = CvBridge()
+            
+            try:
+                cv_image = bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
+            except CvBridgeError as e:
+                self.get_logger().error(f"Bridge conversion error: {e}")
+                return
+            
+            image = cv_image
+            
+            # Compute the median of the gradient magnitudes
+            sobelx = cv.Sobel(image, cv.CV_64F, 1, 0, ksize=5)
+            sobely = cv.Sobel(image, cv.CV_64F, 0, 1, ksize=5)
+            gradient_magnitude = np.sqrt(sobelx**2 + sobely**2)
+            median_val = np.median(gradient_magnitude)
+
+            # Set lower and upper thresholds based on the median
+            sigma = 0.33
+            lower = int(max(0, (1.0 - sigma) * median_val))
+            upper = int(min(255, (1.0 + sigma) * median_val))
+            
+            gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+            
+            # Edge detection on the image
+            edges = cv.Canny(gray, lower, upper)
+            edges = cv.cvtColor(edges, cv.COLOR_GRAY2RGB)
+                
+            # Detecting parts using YOLO
+            res = self._model(edges)
+            parts = []
+            for r in res:
+                boxes = r.boxes
+                for box in boxes:
+                    b=box.xyxy[0].to('cpu').detach().numpy().copy()
+                    c=box.cls
+                    class_name = self._model.names[int(c)]
+                    top = int(b[0])
+                    left = int(b[1])
+                    bottom = int(b[2])
+                    right = int(b[3])
+                    parts.append((class_name, top, left, bottom, right))
+            
+            # Sorting parts based on location of the part
+            parts = sorted(parts, key=lambda x: np.sqrt(x[1]**2 + x[2]**2))
+            
+            final_parts = []
+
+            hsv_ranges = {
+                'Red': ([169, 100, 100], [189, 255, 255]),
+                'Green': ([57, 100, 100], [77, 255, 255]),
+                'Blue': ([105, 100, 100], [125, 255, 255]),
+                'Orange': ([3, 100, 100], [23, 255, 255]),
+                'Purple': ([128, 100, 100], [148, 255, 255])
+            }
+            
+            # Detecting colors of the parts
+            for part in parts:
+                max_area = 0
+                part_color = None
+                hsv = cv.cvtColor(image[part[2]:part[4], part[1]:part[3]], cv.COLOR_BGR2HSV)
+                for color, (lower, upper) in hsv_ranges.items():
+                    lower = np.array(lower, dtype=np.uint8)
+                    upper = np.array(upper, dtype=np.uint8)
+                    mask = cv.inRange(hsv, lower, upper)
+                    area = cv.countNonZero(mask)
+                    if area > max_area:
+                        part_color = color
+                        max_area = area
+                final_parts.append((part_color, part[0]))
+                
+            self.parts[side] = final_parts
 
     def _multiply_pose(self, pose1: Pose, pose2: Pose) -> Pose:
         '''
@@ -405,6 +620,7 @@ class OrderManagement(Node):
         pose.position.y = frame3.p.y()
         pose.position.z = frame3.p.z()
 
+        # Getting Roll, Pitch, and Yaw from the rotation matrix
         q = frame3.M.GetRPY()
         pose.orientation.x = q[0]
         pose.orientation.y = q[1]
@@ -417,7 +633,7 @@ class OrderManagement(Node):
         """
         Process all orders in the queue.
         """
-        if False not in self.tables_done and False not in self.bins_done:
+        if False not in self.tables_done.values() and False not in self.bins_done.values():
             self.get_logger().info("All tables and bins are detected. Starting order processing.")
         while rclpy.ok():
             with self.processing_lock:
@@ -450,23 +666,22 @@ class OrderManagement(Node):
 
         # Get the tray pose and orientation
         tray_id = order._order_task.tray_id
-        self.get_logger().info(f" - Tray Dict: {self._Tray_Dictionary}")
         # To get the Unuesd tray
         for key in self._Tray_Dictionary.keys():
             if tray_id not in self._Tray_Dictionary[key].keys():
                 continue
             if self._Tray_Dictionary[key][tray_id]['status'] == False:
-                table_id = key
+                side = key
                 self._Tray_Dictionary[key][tray_id]['status'] = True
                 break
-        tray_pose = self._Tray_Dictionary[table_id][tray_id]['position']
-        tray_orientation = self._Tray_Dictionary[table_id][tray_id]['orientation']
+        tray_pose = self._Tray_Dictionary[side][tray_id]['position']
+        tray_orientation = self._Tray_Dictionary[side][tray_id]['orientation']
         self.get_logger().info("Kitting Tray:")
         self.get_logger().info(f" - ID: {tray_id}")
         self.get_logger().info(f" - Position (xyz): {tray_pose}")
         self.get_logger().info(f" - Orientation (rpy): {tray_orientation}")
         self.get_logger().info(f"Parts:")
-        
+
         # Get the parts and their poses
         parts = order._order_task.parts
         for part in parts:
@@ -491,7 +706,7 @@ class OrderManagement(Node):
                             pose = part_right['position']
                             orientation = part_right['orientation']
                             break
-            else:
+            elif final_part is None:
                 self.get_logger().warn(f"No parts found in bins")
                 return
             
@@ -517,19 +732,19 @@ class OrderManagement(Node):
         order = self.current_order
         if order.elapsed_wait > 0:
             # Calculate the remaining wait time for a resuming order
-            remaining_wait = max(15 - order.elapsed_wait, 0)
-            self.get_logger().info(
-                f"Order {order._order_id} resuming wait with {remaining_wait:.2f} seconds remaining."
-            )
+            remaining_wait = max(12-order.elapsed_wait, 0)
+            # self.get_logger().info(
+            #     f"Order {order._order_id} resuming wait with {remaining_wait:.2f} seconds remaining."
+            # )
         else:
             # Full wait time for a first-time wait
-            remaining_wait = 15
+            remaining_wait = 12
         order.wait_start_time = time.time()
 
         order.waiting = True  # Ensure order.waiting is set to True whether it's a new wait or a resumed one
-        self.get_logger().info(
-            f"Order {order._order_id}: Waiting for {remaining_wait:.2f} seconds before processing."
-        )
+        # self.get_logger().info(
+        #     f"Order {order._order_id}: Waiting for {remaining_wait:.2f} seconds before processing."
+        # )
 
         while remaining_wait > 0:
             start_wait = time.time()
@@ -539,9 +754,9 @@ class OrderManagement(Node):
                     # If the order's waiting is interrupted, adjust the elapsed wait time and pause the wait
                     paused_wait = time.time() - start_wait
                     order.elapsed_wait += paused_wait
-                    self.get_logger().info(
-                        f"Order {order._order_id}: Wait paused at {paused_wait:.2f} seconds. Total elapsed wait time: {order.elapsed_wait:.2f} seconds."
-                    )
+                    # self.get_logger().info(
+                    #     f"Order {order._order_id}: Wait paused at {paused_wait:.2f} seconds. Total elapsed wait time: {order.elapsed_wait:.2f} seconds."
+                    # )
                     return  # Exit the wait loop if the order is paused
 
             actual_waited = time.time() - start_wait
@@ -551,9 +766,9 @@ class OrderManagement(Node):
         order.elapsed_wait += total_waited  # Update the total elapsed wait time
         order.waiting = False  # Set waiting to False after the wait is completed
 
-        self.get_logger().info(
-            f"Order {order._order_id}: Total elapsed wait time before processing: {order.elapsed_wait:.2f} seconds."
-        )
+        # self.get_logger().info(
+        #     f"Order {order._order_id}: Total elapsed wait time before processing: {order.elapsed_wait:.2f} seconds."
+        # )
         self._process_order(order)  # Proceed to process the order
 
         with self.processing_lock:
@@ -603,6 +818,7 @@ class OrderManagement(Node):
             response = future.result()
             if response:
                 self.get_logger().info(f"AGV: {agv} moved to {destination}")
+                # self._agv_statuses[agv] = 'WAREHOUSE'
         else:
             self.get_logger().warn(f"Service call failed {future.exception()}")
             self.get_logger().warn(f"Failed to move AGV: {agv} to {destination}")
@@ -620,6 +836,7 @@ class OrderManagement(Node):
         # Wait until the AGV is in the warehouse
         while self._agv_statuses.get(agv_id) != "WAREHOUSE":
             time.sleep(1)
+            rclpy.spin_once(self)
 
         self._submit_order_client = self.create_client(
             SubmitOrder, "/ariac/submit_order", callback_group=self._service_group
@@ -628,7 +845,7 @@ class OrderManagement(Node):
         request.order_id = order_id
         future = self._submit_order_client.call_async(request)
         rclpy.spin_until_future_complete(self, future)
-
+        rclpy.spin_once(self)
         if future.result() is not None:
             response = future.result()
             if response:

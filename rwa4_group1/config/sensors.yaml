@@ -1,25 +1,48 @@
 sensors:
   right_bins_camera:
-    type: advanced_logical_camera
+    type: basic_logical_camera
+    pose:
+      xyz: [-2.286, 2.96, 1.8]
+      rpy: [pi, pi/2, 0]
+
+  right_bins_camera_rgb:
+    type: rgb_camera
     pose:
       xyz: [-2.286, 2.96, 1.8]
       rpy: [pi, pi/2, 0]
 
   left_bins_camera:
-    type: advanced_logical_camera
+    type: basic_logical_camera
+    pose:
+      xyz: [-2.286, -2.96, 1.8]
+      rpy: [pi, pi/2, 0]
+
+  left_bins_camera_rgb:
+    type: rgb_camera
     pose:
       xyz: [-2.286, -2.96, 1.8]
       rpy: [pi, pi/2, 0]
 
   left_table_camera:
-    type: advanced_logical_camera
+    type: basic_logical_camera
     pose:
       xyz: [-1.3, -5.8, 1.8]
       rpy: [pi, pi/2, pi/2]
   
+  left_table_camera_rgb:
+    type: rgb_camera
+    pose:
+      xyz: [-1.3, -5.8, 1.8]
+      rpy: [pi, pi/2, pi/2]
+
   right_table_camera:
-    type: advanced_logical_camera
+    type: basic_logical_camera
     pose:
       xyz: [-1.3, 5.8, 1.8]
       rpy: [pi, pi/2, -pi/2]
   
+  right_table_camera_rgb:
+    type: rgb_camera
+    pose:
+      xyz: [-1.3, 5.8, 1.8]
+      rpy: [pi, pi/2, -pi/2]

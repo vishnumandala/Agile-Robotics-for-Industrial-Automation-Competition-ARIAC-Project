@@ -19,6 +19,7 @@ install(DIRECTORY
   include
   launch
   config
+  dataset
   DESTINATION share/${PROJECT_NAME}
 )
 # # add include directories
