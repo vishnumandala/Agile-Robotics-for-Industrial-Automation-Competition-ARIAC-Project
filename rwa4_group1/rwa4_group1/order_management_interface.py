@@ -152,7 +152,7 @@ class OrderManagement(Node):
             CompetitionState,
             "/ariac/competition_state",
             self._competition_state_cb,
-            QoSProfile(depth=10),
+            qos_profile=qos_policy,
             callback_group=self._competition_callback_group,
         )
 
@@ -192,7 +192,7 @@ class OrderManagement(Node):
             Image,
             "/ariac/sensors/right_table_camera_rgb/rgb_image",
             lambda msg: self._table_tray_callback(msg,'Right'),
-            QoSProfile(depth=10),
+            qos_profile=qos_policy,
             callback_group=self._sensor_callback_group,
         )
         
@@ -200,7 +200,7 @@ class OrderManagement(Node):
             Image,
             "/ariac/sensors/left_table_camera_rgb/rgb_image",
             lambda msg: self._table_tray_callback(msg,'Left'),
-            QoSProfile(depth=10),
+            qos_profile=qos_policy,
             callback_group=self._sensor_callback_group,
         )
         
@@ -208,7 +208,7 @@ class OrderManagement(Node):
             Image,
             "/ariac/sensors/right_bins_camera_rgb/rgb_image",
             lambda msg: self._bin_part_callback(msg,'Right'),
-            QoSProfile(depth=10),
+            qos_profile=qos_policy,
             callback_group=self._sensor_callback_group,
         )
         
@@ -216,7 +216,7 @@ class OrderManagement(Node):
             Image,
             "/ariac/sensors/left_bins_camera_rgb/rgb_image",
             lambda msg: self._bin_part_callback(msg,'Left'),
-            QoSProfile(depth=10),
+            qos_profile=qos_policy,
             callback_group=self._sensor_callback_group,
         )
         
@@ -224,7 +224,7 @@ class OrderManagement(Node):
             OrderMsg,
             "/ariac/orders",
             self._orders_initialization_cb,
-            QoSProfile(depth=10),
+            qos_profile=qos_policy,
             callback_group=self._order_callback_group,
         )
 
@@ -880,7 +880,7 @@ class OrderManagement(Node):
         """
         Callback function of Submit AGV where the async response from server is handled
         """
-        rclpy.spin_until_future_complete(self, future)
+        # rclpy.spin_until_future_complete(self, future)
         # rclpy.spin_once(self)
         if future.result() is not None:
             response = future.result()
@@ -915,7 +915,11 @@ class OrderManagement(Node):
             )
             request = Trigger.Request()
             future = self._end_competition_client.call_async(request)
-            rclpy.spin_until_future_complete(self, future)
+            future.add_done_callback(lambda future: self._end_competition_cb(future))
+
+            
+    def _end_competition_cb(self,future):
+            # rclpy.spin_until_future_complete(self, future)
 
             if future.result() is not None:
                 response = future.result()
