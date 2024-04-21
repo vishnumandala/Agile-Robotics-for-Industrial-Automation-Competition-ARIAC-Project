@@ -737,13 +737,13 @@ class OrderManagement(Node):
         order = self.current_order
         if order.elapsed_wait > 0:
             # Calculate the remaining wait time for a resuming order
-            remaining_wait = max(12-order.elapsed_wait, 0)
+            remaining_wait = max(15-order.elapsed_wait, 0)
             # self.get_logger().info(
             #     f"Order {order._order_id} resuming wait with {remaining_wait:.2f} seconds remaining."
             # )
         else:
             # Full wait time for a first-time wait
-            remaining_wait = 12
+            remaining_wait = 15
         order.wait_start_time = time.time()
 
         order.waiting = True  # Ensure order.waiting is set to True whether it's a new wait or a resumed one
@@ -917,7 +917,7 @@ class OrderManagement(Node):
             future = self._end_competition_client.call_async(request)
             future.add_done_callback(lambda future: self._end_competition_cb(future))
 
-            
+
     def _end_competition_cb(self,future):
             # rclpy.spin_until_future_complete(self, future)
 
