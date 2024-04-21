@@ -136,8 +136,10 @@ class OrderManagement(Node):
             node_name (str): Name of the node
         """
         super().__init__(node_name)
-        self._callback_group = ReentrantCallbackGroup()
-        self._service_group = ReentrantCallbackGroup()
+        self._order_callback_group = ReentrantCallbackGroup()
+        self._sensor_callback_group = ReentrantCallbackGroup()
+        self._competition_callback_group = ReentrantCallbackGroup()
+        self._agv_callback_group = ReentrantCallbackGroup()
 
         self.pkg_share = FindPackageShare("rwa4_group1").find("rwa4_group1")
         
@@ -151,7 +153,7 @@ class OrderManagement(Node):
             "/ariac/competition_state",
             self._competition_state_cb,
             QoSProfile(depth=10),
-            callback_group=self._callback_group,
+            callback_group=self._competition_callback_group,
         )
 
         self._left_table_camera_subscription = self.create_subscription(
@@ -159,7 +161,7 @@ class OrderManagement(Node):
             "/ariac/sensors/left_table_camera/image",
             lambda msg: self._table_camera_callback(msg,'Left'),
             qos_profile=qos_policy,
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self._right_table_camera_subscription = self.create_subscription(
@@ -167,7 +169,7 @@ class OrderManagement(Node):
             "/ariac/sensors/right_table_camera/image",
             lambda msg: self._table_camera_callback(msg,'Right'),
             qos_profile=qos_policy,
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self._left_bins_camera_subscription = self.create_subscription(
@@ -175,7 +177,7 @@ class OrderManagement(Node):
             "/ariac/sensors/left_bins_camera/image",
             lambda msg: self._bin_camera_callback(msg,'Left'),
             qos_profile=qos_policy,
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self._right_bins_camera_subscription = self.create_subscription(
@@ -183,7 +185,7 @@ class OrderManagement(Node):
             "/ariac/sensors/right_bins_camera/image",
             lambda msg: self._bin_camera_callback(msg,'Right'),
             qos_profile=qos_policy,
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self._right_table_rgb_subscription = self.create_subscription(
@@ -191,7 +193,7 @@ class OrderManagement(Node):
             "/ariac/sensors/right_table_camera_rgb/rgb_image",
             lambda msg: self._table_tray_callback(msg,'Right'),
             QoSProfile(depth=10),
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self._left_table_rgb_subscription = self.create_subscription(
@@ -199,7 +201,7 @@ class OrderManagement(Node):
             "/ariac/sensors/left_table_camera_rgb/rgb_image",
             lambda msg: self._table_tray_callback(msg,'Left'),
             QoSProfile(depth=10),
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self._right_bins_rgb_subscription = self.create_subscription(
@@ -207,7 +209,7 @@ class OrderManagement(Node):
             "/ariac/sensors/right_bins_camera_rgb/rgb_image",
             lambda msg: self._bin_part_callback(msg,'Right'),
             QoSProfile(depth=10),
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self._left_bins_rgb_subscription = self.create_subscription(
@@ -215,7 +217,7 @@ class OrderManagement(Node):
             "/ariac/sensors/left_bins_camera_rgb/rgb_image",
             lambda msg: self._bin_part_callback(msg,'Left'),
             QoSProfile(depth=10),
-            callback_group=self._callback_group,
+            callback_group=self._sensor_callback_group,
         )
         
         self._orders_subscription = self.create_subscription(
@@ -223,7 +225,7 @@ class OrderManagement(Node):
             "/ariac/orders",
             self._orders_initialization_cb,
             QoSProfile(depth=10),
-            callback_group=self._callback_group,
+            callback_group=self._order_callback_group,
         )
 
         # To prevent unused variable warning
@@ -317,7 +319,7 @@ class OrderManagement(Node):
                 f"/ariac/agv{agv_id}_status",
                 lambda msg: self._agv_status_cb(msg, agv_id),
                 QoSProfile(depth=10),
-                callback_group=self._callback_group,
+                callback_group=self._agv_callback_group,
             )
 
     def _competition_state_cb(self, msg):
@@ -346,7 +348,10 @@ class OrderManagement(Node):
         # Define a mapping for AGV locations
         location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
         status = location_status_map.get(msg.location, "OTHER")
-        self._agv_statuses[agv_id] = status
+        if (agv_id not in self._agv_statuses):
+            self._agv_statuses[agv_id] = status
+        if(self._agv_statuses[agv_id] != status):
+            self._agv_statuses[agv_id] = status
 
     def _table_camera_callback(self, message, side='Unknown'):
         """ Callback for table camera images. Detects poses of the trays on the table and updates the tray dictionary.
@@ -784,12 +789,21 @@ class OrderManagement(Node):
         # Lock the tray to AGV
         self.get_logger().info(f"Lock Tray service called")
         self._lock_trays_client = self.create_client(
-            Trigger, f"/ariac/agv{agv}_lock_tray", callback_group=self._service_group
-        )
+            Trigger, f"/ariac/agv{agv}_lock_tray")
         request = Trigger.Request()
         future = self._lock_trays_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
+        future.add_done_callback(lambda future: self._lock_tray_cb(future, agv))
 
+
+    def _lock_tray_cb(self,future,agv):
+        """
+        Callback function of lock tray where the async response from server is handled
+
+        Args:
+            future: The Service Client Request
+            agv (str): Name of the agv
+        """
+        # rclpy.spin_until_future_complete(self, future)
         if future.result() is not None:
             response = future.result()
             if response:
@@ -807,12 +821,22 @@ class OrderManagement(Node):
         # Move the AGV to the destination
         self.get_logger().info(f"Move AGV service called")
         self._move_agv_client = self.create_client(
-            MoveAGV, f"/ariac/move_agv{agv}", callback_group=self._service_group
-        )
+            MoveAGV, f"/ariac/move_agv{agv}")
         request = MoveAGV.Request()
         request.location = destination
         future = self._move_agv_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
+        future.add_done_callback(lambda future: self._move_agv_cb(future, agv,destination))
+
+    def _move_agv_cb(self,future, agv,destination):
+        """
+        Callback function of Move AGV where the async response from server is handled
+
+        Args:
+            future: The Service Client Request
+            agv (str): Name of the agv
+            destination(int): The destination of order to be processed
+        """
+        # rclpy.spin_until_future_complete(self, future)
         destination = "Warehouse" if destination == 3 else destination
         if future.result() is not None:
             response = future.result()
@@ -833,19 +857,31 @@ class OrderManagement(Node):
         """
         self.get_logger().info(f"Submit Order service called")
 
-        # Wait until the AGV is in the warehouse
-        while self._agv_statuses.get(agv_id) != "WAREHOUSE":
-            time.sleep(1)
-            rclpy.spin_once(self)
+        current_status = self._agv_statuses.get(agv_id)
+
+        for i in range(200):
+            if current_status == "WAREHOURSE":
+                break
+            current_status = self._agv_statuses.get(agv_id)
+        # # Wait until the AGV is in the warehouse
+        # while self._agv_statuses.get(agv_id) != "WAREHOUSE":
+        #     time.sleep(1)
+        #     rclpy.spin_once(self)
 
         self._submit_order_client = self.create_client(
-            SubmitOrder, "/ariac/submit_order", callback_group=self._service_group
-        )
+            SubmitOrder, "/ariac/submit_order")
         request = SubmitOrder.Request()
         request.order_id = order_id
         future = self._submit_order_client.call_async(request)
+        future.add_done_callback(lambda future: self._submit_order_cb(future))
+
+        
+    def _submit_order_cb(self,future):
+        """
+        Callback function of Submit AGV where the async response from server is handled
+        """
         rclpy.spin_until_future_complete(self, future)
-        rclpy.spin_once(self)
+        # rclpy.spin_once(self)
         if future.result() is not None:
             response = future.result()
             if response:
@@ -875,7 +911,7 @@ class OrderManagement(Node):
             self.competition_ended = True
             self.get_logger().info(f"End competition service called")
             self._end_competition_client = self.create_client(
-                Trigger, "/ariac/end_competition", callback_group=self._service_group
+                Trigger, "/ariac/end_competition", callback_group=self._competition_callback_group
             )
             request = Trigger.Request()
             future = self._end_competition_client.call_async(request)
