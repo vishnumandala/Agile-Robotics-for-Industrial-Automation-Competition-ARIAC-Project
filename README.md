@@ -42,11 +42,15 @@ Task 8 - Python
 ```
 ### Terminal 1
 ```bash
-    ros2 launch ariac_gazebo ariac.launch.py competitor_pkg:=rwa4_group1 sensor_config:=sensors trial_name:=rwa4_spring2024
+    ros2 launch ariac_gazebo ariac.launch.py competitor_pkg:=rwa5_group1 sensor_config:=sensors trial_name:=rwa5_spring2024
 ```
 ### Terminal 2
 ```bash
-    ros2 launch rwa4_group1 rwa4_group1.launch.py
+    ros2 launch ariac_moveit_config ariac_robots_moveit.launch.py
+```
+### Terminal 3
+```bash
+    ros2 launch rwa5_group1 rwa5_group1.launch.py
 ```
 
 `Note`: Run the Command in terminal two after the statement `"You can now start the competetion!"` in Terminal 1.

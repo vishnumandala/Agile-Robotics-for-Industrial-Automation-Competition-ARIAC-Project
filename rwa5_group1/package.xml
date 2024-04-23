@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>rwa4_group1</name>
+  <name>rwa5_group1</name>
   <version>0.0.0</version>
   <description>Rwa3: To start ariac and perform kitting task</description>
   <maintainer email="achavan1@umd.edu">Ankur Mahesh Chavan</maintainer>
@@ -19,6 +19,14 @@
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>ariac_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>orocos_kdl</depend>
+  <depend>shape_msgs</depend>
+  <depend>moveit_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>robot_commander_msgs</depend>
   <exec_depend>rosidl_default_runtime</exec_depend>
   <member_of_group>rosidl_interface_packages</member_of_group>
   <test_depend>ament_lint_auto</test_depend>

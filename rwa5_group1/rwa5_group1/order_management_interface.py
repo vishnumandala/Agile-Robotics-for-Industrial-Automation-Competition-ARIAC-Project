@@ -141,7 +141,7 @@ class OrderManagement(Node):
         self._competition_callback_group = ReentrantCallbackGroup()
         self._agv_callback_group = ReentrantCallbackGroup()
 
-        self.pkg_share = FindPackageShare("rwa4_group1").find("rwa4_group1")
+        self.pkg_share = FindPackageShare("rwa5_group1").find("rwa5_group1")
         
         # Subscriptions
         qos_policy = rclpy.qos.QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,

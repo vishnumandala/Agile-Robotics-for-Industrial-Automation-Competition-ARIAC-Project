@@ -7,7 +7,7 @@
 #include <map>
 #include <string>
 
-#include "rwa4_group1/start_ariac_competition.hpp"
+#include "rwa5_group1/start_ariac_competition.hpp"
 #include <ariac_msgs/msg/competition_state.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <ariac_msgs/srv/move_agv.hpp>
