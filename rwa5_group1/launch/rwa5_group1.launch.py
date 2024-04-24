@@ -69,8 +69,8 @@ def launch_setup(context, *args, **kwargs):
     nodes_to_start = [
         moveit_cpp,
         ariac_start_cpp,
-        order_py,
-        moveit_python
+        order_py
+        # moveit_python
         # rviz_node,
         # moveit
     ]
