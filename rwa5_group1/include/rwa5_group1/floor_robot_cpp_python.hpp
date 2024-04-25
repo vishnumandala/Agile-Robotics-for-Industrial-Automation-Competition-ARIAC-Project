@@ -399,7 +399,7 @@ class FloorRobot : public rclcpp::Node {
    * 
    * @param future Future result
    */
-  void change_gripper_cb(rclcpp::Client<ariac_msgs::srv::ChangeGripper>::SharedFuture future);
+//   void change_gripper_cb(rclcpp::Client<ariac_msgs::srv::ChangeGripper>::SharedFuture future);
 
 
   //---------------------------------//
@@ -627,6 +627,12 @@ class FloorRobot : public rclcpp::Node {
   rclcpp::CallbackGroup::SharedPtr subscription_cbg_;
   //! Specific callback group for the state of the gripper
   rclcpp::CallbackGroup::SharedPtr gripper_cbg_;
+
+  //========== My function for Change Gripper Callback==========//
+
+  //! Specific callback group for the changing gripper
+  rclcpp::CallbackGroup::SharedPtr change_gripper_cbg_;
+  // ============================================================//
   //! Whether "kts1_camera" has received data or not
   bool kts1_camera_received_data = false;
   //! Whether "kts2_camera" has received data or not
@@ -746,5 +752,5 @@ class FloorRobot : public rclcpp::Node {
   */
   std::map<int, int> agv_locations_ = {{1, -1}, {2, -1}, {3, -1}, {4, -1}};
 
-  bool changed_gripper = false;
+//   bool changed_gripper = false;
 };

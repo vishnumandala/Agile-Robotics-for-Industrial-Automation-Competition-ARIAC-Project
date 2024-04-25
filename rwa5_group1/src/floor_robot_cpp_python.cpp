@@ -32,12 +32,16 @@ FloorRobot::FloorRobot()
   // callback groups
   rclcpp::SubscriptionOptions options;
   rclcpp::SubscriptionOptions gripper_options;
+  // rclcpp::SubscriptionOptions change_gripper_options;
   subscription_cbg_ =
       create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   gripper_cbg_ =
       create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  change_gripper_cbg_ =
+      create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   options.callback_group = subscription_cbg_;
   gripper_options.callback_group = gripper_cbg_;
+  // change_gripper_options.callback_group = change_gripper_cbg_;
 
   // subscriber callback to /moveit_demo/floor_robot/go_home topic
   moveit_demo_sub_ = this->create_subscription<std_msgs::msg::String>(
@@ -115,7 +119,7 @@ FloorRobot::FloorRobot()
   // client to /ariac/floor_robot_change_gripper
   floor_robot_tool_changer_ =
       this->create_client<ariac_msgs::srv::ChangeGripper>(
-          "/ariac/floor_robot_change_gripper");
+          "/ariac/floor_robot_change_gripper",rmw_qos_profile_services_default,change_gripper_cbg_);
   // client to /ariac/floor_robot_enable_gripper
   floor_robot_gripper_enable_ =
       this->create_client<ariac_msgs::srv::VacuumGripperControl>(
@@ -988,51 +992,43 @@ bool FloorRobot::change_gripper(std::string changing_station,
         ariac_msgs::srv::ChangeGripper::Request::PART_GRIPPER;
   }
 
-  // auto future = floor_robot_tool_changer_->async_send_request(request);
-  RCLCPP_ERROR(get_logger(), "Calling Gripper Change Request");
-  auto future_result = floor_robot_tool_changer_->async_send_request(request, std::bind(&FloorRobot::change_gripper_cb, this, std::placeholders::_1));
-  RCLCPP_ERROR(get_logger(), "Gripper Change Successful");
+  auto future = floor_robot_tool_changer_->async_send_request(request);
+  // RCLCPP_ERROR(get_logger(), "Calling Gripper Change Request");
+  // auto future_result = floor_robot_tool_changer_->async_send_request(request, std::bind(&FloorRobot::change_gripper_cb, this, std::placeholders::_1));
+  // RCLCPP_ERROR(get_logger(), "Gripper Change Successful");
   // return true;
-  // future.wait();
-  // if (!future.get()->success)
-  // {
-  //   RCLCPP_ERROR(get_logger(), "Error calling gripper change service");
-  //   return false;
-  // }
-  // // if (future.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
-  // //     if (!future.get()->success) {
-  // //         RCLCPP_ERROR(get_logger(), "Error calling gripper change service");
-  // //         return false;
-  // //     }
-  // //     } else {
-  // //         RCLCPP_ERROR(get_logger(), "Timeout waiting for gripper change service");
-  // //         return false;
-  // //     }
-  // waypoints.clear();
-  // waypoints.push_back(Utils::build_pose(tc_pose.position.x, tc_pose.position.y,
-  //                                       tc_pose.position.z + 0.4,
-  //                                       set_robot_orientation(0.0)));
+  future.wait();
+  if (!future.get()->success)
+  {
+    RCLCPP_ERROR(get_logger(), "Error calling gripper change service");
+    return false;
+  }
+  waypoints.clear();
+  waypoints.push_back(Utils::build_pose(tc_pose.position.x, tc_pose.position.y,
+                                        tc_pose.position.z + 0.4,
+                                        set_robot_orientation(0.0)));
 
-  // if (!move_through_waypoints(waypoints, 0.2, 0.1))
-  //   return false;
-
-  // return true;
+  if (!move_through_waypoints(waypoints, 0.2, 0.1))
+    return false;
+  return true;
 }
 
 //========= Change Gripper Modification due to future.wait============//
-void FloorRobot::change_gripper_cb(rclcpp::Client<ariac_msgs::srv::ChangeGripper>::SharedFuture future){
-  auto status = future.wait_for(std::chrono::seconds(5));
-  if (status == std::future_status::ready)
-  {
-    changed_gripper = true;
-    RCLCPP_INFO(this->get_logger(),"Gripper Changed Successfully");
+// void FloorRobot::change_gripper_cb(rclcpp::Client<ariac_msgs::srv::ChangeGripper>::SharedFuture future){
+//   auto status = future.wait_for(std::chrono::seconds(5));
+//   if (status == std::future_status::ready)
+//   {
+//     changed_gripper = true;
+//     RCLCPP_INFO(this->get_logger(),"Gripper Changed Successfully");
 
-  } else {
-      RCLCPP_INFO(this->get_logger(),"Still Waiting For Service Response");
-  }
-}
+//   } else {
+//       RCLCPP_INFO(this->get_logger(),"Still Waiting For Service Response");
+//   }
+// }
 
 //=============================================//
+
+
 bool FloorRobot::pick_and_place_tray(int tray_id, int agv_num)
 {
   // Check if kit tray is on one of the two tables
@@ -1270,8 +1266,8 @@ bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick, geometry_msgs
     //   // RCLCPP_ERROR(get_logger(), "Unable to Receive Server Response of Gripper");
     //   temp_gripper_change_status = changed_gripper;
     // }
-    changed_gripper = true;
-    exit_tool_changer(station, "parts");
+    // changed_gripper = true;
+    // exit_tool_changer(station, "parts");
   }
 
   floor_robot_->setJointValueTarget("linear_actuator_joint",
