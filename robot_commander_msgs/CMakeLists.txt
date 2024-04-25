@@ -9,6 +9,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(ariac_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 set(srv_files
@@ -17,6 +18,8 @@ set(srv_files
   "srv/MoveRobotToTray.srv"
   "srv/EnterToolChanger.srv"
   "srv/ExitToolChanger.srv"
+  "srv/PickPartBin.srv"
+  "srv/PlacePartTray.srv"
 )
 
 
@@ -26,6 +29,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES
   std_msgs
   geometry_msgs
+  ariac_msgs
 )
 
 ament_export_dependencies(rosidl_default_runtime)

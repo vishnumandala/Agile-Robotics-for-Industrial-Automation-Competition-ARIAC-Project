@@ -12,7 +12,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile
 from rclpy.callback_groups import ReentrantCallbackGroup
-from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, BasicLogicalCameraImage,  VacuumGripperState
+from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, BasicLogicalCameraImage,  VacuumGripperState, Part
 from ariac_msgs.srv import MoveAGV, SubmitOrder,ChangeGripper, VacuumGripperControl
 from std_srvs.srv import Trigger
 from queue import PriorityQueue
@@ -34,6 +34,8 @@ from robot_commander_msgs.srv import (
     MoveRobotToTable,
     MoveRobotToTray,
     MoveTrayToAGV,
+    PickPartBin,
+    PlacePartTray
 )
 
 
@@ -292,6 +294,9 @@ class OrderManagement(Node):
                                  7:MoveRobotToTray.Request.TRAY_ID7,8:MoveRobotToTray.Request.TRAY_ID8,9:MoveRobotToTray.Request.TRAY_ID9}
 
         self._agv_id_mapping = {1:MoveTrayToAGV.Request.AGV1, 2:MoveTrayToAGV.Request.AGV2, 3:MoveTrayToAGV.Request.AGV3,4:MoveTrayToAGV.Request.AGV4}
+        self._quadrant_mapping = {1:PlacePartTray.Request.QUADRANT1, 2:PlacePartTray.Request.QUADRANT2,3:PlacePartTray.Request.QUADRANT3,4:PlacePartTray.Request.QUADRANT4}
+        self._part_color_mapping = {"Red": Part.RED, "Green": Part.GREEN, "Blue" : Part.GREEN, "Orange" : Part.ORANGE, "Purple": Part.PURPLE}
+        self._part_type_mapping = {"Battery":Part.BATTERY,"Pump":Part.PUMP,"Sensor":Part.SENSOR,"Regulator":Part.REGULATOR}
         self._robot_gripper_state_subscription = self.create_subscription(
             VacuumGripperState,
             "/ariac/floor_robot_gripper_state",
@@ -301,6 +306,22 @@ class OrderManagement(Node):
         )
         
         self._robot_gripper_state = "part_gripper"
+
+
+        # client to Pick the part
+        self._pick_part_bin_cli = self.create_client(
+            PickPartBin, "/commander/pick_part_bin"
+        )
+        self._picking_part_from_bin = False
+        self._picked_part_from_bin = False
+        # Client to Place Part In tray
+        self._place_part_tray_cli = self.create_client(
+            PlacePartTray, "/commander/place_part_tray"
+        )
+        self._placing_part_on_tray = False
+        self._placed_part_on_tray = False
+
+
         ##########################################
         #### Demo Move it code 
         #######################
@@ -973,6 +994,57 @@ class OrderManagement(Node):
             
         # 3. Pick each part and place on agv tray
 
+        for k,v in order._parts_status_tray.items():
+            # self.get_logger().info("Python Node : Robot Moved to Home")
+            if(v["part_status"] == False):
+                part_details = Part()
+                part_details.color = self._part_color_mapping[v["part_color"]]
+                part_details.type = self._part_type_mapping[v["part_type"]]
+                part_pose_curr = v["pose"]
+                part_pose_curr_orient = v["orientation"]
+                part_bin_side = v["bin"]
+                part_quadrant = self._quadrant_mapping[v["part_quadrant"]]
+                part_pose = Pose()
+                part_pose.position.x = part_pose_curr[0]
+                part_pose.position.y = part_pose_curr[1]
+                part_pose.position.z = part_pose_curr[2]
+                part_pose.orientation.x = part_pose_curr_orient[0]
+                part_pose.orientation.y = part_pose_curr_orient[0]
+                part_pose.orientation.z = part_pose_curr_orient[0]
+                part_pose.orientation.w = part_pose_curr_orient[0]
+
+                ############## MoveIT Actions for Part ############
+
+                ### Move Robot Home
+                self._move_robot_home()
+                robot_moved_home_status_temp = self._moved_robot_home
+                while not robot_moved_home_status_temp :
+                    robot_moved_home_status_temp = self._moved_robot_home
+                self._moved_robot_home = False
+                self.get_logger().info("Python Node : Robot Moved to Home")
+
+                ### Pick Part from Bin
+                self._robot_pick_part_from_bin(part_details,part_pose,part_bin_side)
+                robot_picked_part_bin_temp = self._picked_part_from_bin
+                while not robot_picked_part_bin_temp :
+                    robot_picked_part_bin_temp = self._picked_part_from_bin
+                self._picked_part_from_bin = False
+                self.get_logger().info("Python Node : Part Picked From Bin")
+
+                ### Part Placed on Tray
+                self._robot_place_part_on_tray(agv_id,part_quadrant)
+                robot_placed_part_tray_temp = self._placed_part_on_tray
+                while not robot_placed_part_tray_temp :
+                    robot_placed_part_tray_temp = self._placed_part_on_tray
+                self._placed_part_on_tray = False
+                self.get_logger().info("Python Node : Part Placed on Tray")
+
+                v["part_status"] == True
+
+
+
+
+
 
     def _wait_and_process_current_order(self):
         """
@@ -1460,4 +1532,74 @@ class OrderManagement(Node):
         current_gripper_state = message.type
         if (current_gripper_state != self._robot_gripper_state):
             self._robot_gripper_state = current_gripper_state
-     
+
+
+    def _robot_pick_part_from_bin(self, part,pose,bin):
+        """
+        Make the robot pick part from bin
+
+        Args:
+            part: the type and color of part
+            pose: The pose of the part in world frame
+            bin: The bin where parts lie
+        """
+
+        self.get_logger().info("👉 Picking Part from bin")
+        self._picking_part_from_bin = True
+        while not self._pick_part_bin_cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info("Service not available, waiting...")
+
+        request = PickPartBin.Request()
+        request.part = part
+        request.pose = pose
+        request.bin_side = bin
+        future = self._pick_part_bin_cli.call_async(request)
+        future.add_done_callback(self._pick_part_bin_cli_cb)
+
+    def _pick_part_bin_cli_cb(self, future):
+        """
+        Client callback for the service /commander/pick_part_bin
+
+        Args:
+            future (Future): A future object
+        """
+        message = future.result().message
+        if future.result().success:
+            self.get_logger().info(f"✅ {message}")
+            self._picked_part_from_bin = True
+        else:
+            self.get_logger().fatal(f"💀 {message}")
+    
+    def _robot_place_part_on_tray(self, agv_number,quadrant):
+        """
+        Make the robot pick part from bin
+
+        Args:
+            agv_number: the agv on which part is placed
+            quadrant: the quadrant on tray where part is placed
+        """
+
+        self.get_logger().info("👉 Placing Part on Tray")
+        self._placing_part_on_tray = True
+        while not self._place_part_tray_cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info("Service not available, waiting...")
+
+        request = PlacePartTray.Request()
+        request.agv_number = agv_number
+        request.quadrant = quadrant
+        future = self._place_part_tray_cli.call_async(request)
+        future.add_done_callback(self._place_part_tray_cli_cb)
+
+    def _place_part_tray_cli_cb(self, future):
+        """
+        Client callback for the service /commander/pick_part_tray
+
+        Args:
+            future (Future): A future object
+        """
+        message = future.result().message
+        if future.result().success:
+            self.get_logger().info(f"✅ {message}")
+            self._placed_part_on_tray = True
+        else:
+            self.get_logger().fatal(f"💀 {message}")

@@ -1,0 +1,6 @@
+ariac_msgs/Part part
+geometry_msgs/Pose pose
+string bin_side
+---
+bool success
+string message

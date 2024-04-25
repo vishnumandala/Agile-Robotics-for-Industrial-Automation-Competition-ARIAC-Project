@@ -55,6 +55,8 @@
 #include <robot_commander_msgs/srv/move_robot_to_table.hpp>
 #include <robot_commander_msgs/srv/move_robot_to_tray.hpp>
 #include <robot_commander_msgs/srv/move_tray_to_agv.hpp>
+#include <robot_commander_msgs/srv/pick_part_bin.hpp>
+#include <robot_commander_msgs/srv/place_part_tray.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -185,6 +187,13 @@ class FloorRobot : public rclcpp::Node {
   //! Service to move the end effector outside a tool changer
   rclcpp::Service<robot_commander_msgs::srv::ExitToolChanger>::SharedPtr
       exit_tool_changer_srv_;
+  //! Service to pick part from bin
+  rclcpp::Service<robot_commander_msgs::srv::PickPartBin>::SharedPtr 
+        pick_part_bin_srv_;
+//! Service to place part on tray
+  rclcpp::Service<robot_commander_msgs::srv::PlacePartTray>::SharedPtr 
+        place_part_tray_srv_;
+
 
   /**
    * @brief Callback function for the service /commander/move_robot_home
@@ -254,6 +263,29 @@ class FloorRobot : public rclcpp::Node {
   void exit_tool_changer_srv_cb(
       robot_commander_msgs::srv::ExitToolChanger::Request::SharedPtr req_,
       robot_commander_msgs::srv::ExitToolChanger::Response::SharedPtr res_);
+
+  /**
+   * @brief Callback function for service /commander/pick_part_bin
+   * 
+   * @param req Shared Pointer to robot_commander_msgs::srv::MoveRobotToTray::Request - Picking part form Bin
+   * @param res Success response whether part picked or not from bin
+   */
+
+  void pick_part_bin_srv_cb(
+    robot_commander_msgs::srv::PickPartBin::Request::SharedPtr req,
+    robot_commander_msgs::srv::PickPartBin::Response::SharedPtr res);
+
+  /**
+   * @brief Callback function for service /commander/place_part_tray
+   * 
+   * @param req Shared Pointer to robot_commander_msgs::srv::PlacePartTray::Request - Placing Part on Tray
+   * @param res Success response whether part is placed on tray or not
+   */
+
+  void place_part_tray_srv_cb(
+    robot_commander_msgs::srv::PlacePartTray::Request::SharedPtr req,
+    robot_commander_msgs::srv::PlacePartTray::Response::SharedPtr res);
+
 
   /**
    * @brief Provide motion to the floor robot to move its base to one of the two
@@ -361,8 +393,16 @@ class FloorRobot : public rclcpp::Node {
    * @return false Failed to change the gripper
    */
   bool change_gripper(std::string changing_station, std::string gripper_type);
-  //-----------------------------//
+  //--------------- My Functions--------------//
+  /**
+   * @brief Change Gripper Callback
+   * 
+   * @param future Future result
+   */
+  void change_gripper_cb(rclcpp::Client<ariac_msgs::srv::ChangeGripper>::SharedFuture future);
 
+
+  //---------------------------------//
   /**
    * @brief Pick a tray from the kit tray station and place it on the AGV
    *
@@ -387,7 +427,7 @@ class FloorRobot : public rclcpp::Node {
    * @return true  Successfully picked the part
    * @return false Failed to pick the part
    */
-  bool pick_bin_part(ariac_msgs::msg::Part part_to_pick);
+  bool pick_bin_part(ariac_msgs::msg::Part part_to_pick, geometry_msgs::msg::Pose pose, std::string bin);
   //-----------------------------//
 
   /**
@@ -705,4 +745,6 @@ class FloorRobot : public rclcpp::Node {
       - UNKNOWN=99
   */
   std::map<int, int> agv_locations_ = {{1, -1}, {2, -1}, {3, -1}, {4, -1}};
+
+  bool changed_gripper = false;
 };

@@ -162,6 +162,21 @@ FloorRobot::FloorRobot()
           std::bind(&FloorRobot::exit_tool_changer_srv_cb, this,
                     std::placeholders::_1, std::placeholders::_2));
 
+
+  // =====Services To Pick and Place Parts from Bin and then Tray : Our Additions ================
+
+  // Pick Part from Bin
+  pick_part_bin_srv_ =
+      create_service<robot_commander_msgs::srv::PickPartBin>(
+          "/commander/pick_part_bin",
+          std::bind(&FloorRobot::pick_part_bin_srv_cb, this,
+                    std::placeholders::_1, std::placeholders::_2));
+  // To Place Part on Tray
+  place_part_tray_srv_ =
+      create_service<robot_commander_msgs::srv::PlacePartTray>(
+          "/commander/place_part_tray",
+          std::bind(&FloorRobot::place_part_tray_srv_cb, this,
+                    std::placeholders::_1, std::placeholders::_2));
   // add models to the planning scene
   add_models_to_planning_scene();
   executor_->add_node(node_);
@@ -973,24 +988,48 @@ bool FloorRobot::change_gripper(std::string changing_station,
         ariac_msgs::srv::ChangeGripper::Request::PART_GRIPPER;
   }
 
-  auto future = floor_robot_tool_changer_->async_send_request(request);
+  // auto future = floor_robot_tool_changer_->async_send_request(request);
+  RCLCPP_ERROR(get_logger(), "Calling Gripper Change Request");
+  auto future_result = floor_robot_tool_changer_->async_send_request(request, std::bind(&FloorRobot::change_gripper_cb, this, std::placeholders::_1));
+  RCLCPP_ERROR(get_logger(), "Gripper Change Successful");
+  // return true;
+  // future.wait();
+  // if (!future.get()->success)
+  // {
+  //   RCLCPP_ERROR(get_logger(), "Error calling gripper change service");
+  //   return false;
+  // }
+  // // if (future.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+  // //     if (!future.get()->success) {
+  // //         RCLCPP_ERROR(get_logger(), "Error calling gripper change service");
+  // //         return false;
+  // //     }
+  // //     } else {
+  // //         RCLCPP_ERROR(get_logger(), "Timeout waiting for gripper change service");
+  // //         return false;
+  // //     }
+  // waypoints.clear();
+  // waypoints.push_back(Utils::build_pose(tc_pose.position.x, tc_pose.position.y,
+  //                                       tc_pose.position.z + 0.4,
+  //                                       set_robot_orientation(0.0)));
 
-  future.wait();
-  if (!future.get()->success)
+  // if (!move_through_waypoints(waypoints, 0.2, 0.1))
+  //   return false;
+
+  // return true;
+}
+
+//========= Change Gripper Modification due to future.wait============//
+void FloorRobot::change_gripper_cb(rclcpp::Client<ariac_msgs::srv::ChangeGripper>::SharedFuture future){
+  auto status = future.wait_for(std::chrono::seconds(5));
+  if (status == std::future_status::ready)
   {
-    RCLCPP_ERROR(get_logger(), "Error calling gripper change service");
-    return false;
+    changed_gripper = true;
+    RCLCPP_INFO(this->get_logger(),"Gripper Changed Successfully");
+
+  } else {
+      RCLCPP_INFO(this->get_logger(),"Still Waiting For Service Response");
   }
-
-  waypoints.clear();
-  waypoints.push_back(Utils::build_pose(tc_pose.position.x, tc_pose.position.y,
-                                        tc_pose.position.z + 0.4,
-                                        set_robot_orientation(0.0)));
-
-  if (!move_through_waypoints(waypoints, 0.2, 0.1))
-    return false;
-
-  return true;
 }
 
 //=============================================//
@@ -1118,7 +1157,35 @@ bool FloorRobot::pick_and_place_tray(int tray_id, int agv_num)
 }
 
 //=============================================//
-bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick)
+
+//===================== Our Service Functions Callbacks for Pick Part from Bin===========//
+
+void FloorRobot::pick_part_bin_srv_cb(
+    robot_commander_msgs::srv::PickPartBin::Request::SharedPtr req,
+    robot_commander_msgs::srv::PickPartBin::Response::SharedPtr res)
+{
+  RCLCPP_INFO(get_logger(), "Received request to pick part from bin");
+  auto part = req->part;
+  auto pose = req->pose;
+  auto bin = req->bin_side;
+
+  if (pick_bin_part(part, pose,bin))
+  {
+    RCLCPP_INFO(get_logger(), "Successfully Picked part from Bin");
+    res->success = true;
+    res->message = "Picked Part from Bin";
+  }
+  else
+  {
+    res->success = false;
+    res->message = "Unable to Pick Part from Bin";
+  }
+}
+
+// ======================================= //
+
+
+bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick, geometry_msgs::msg::Pose pose, std::string bin)
 {
   RCLCPP_INFO_STREAM(get_logger(), "Attempting to pick a "
                                        << part_colors_[part_to_pick.color]
@@ -1127,41 +1194,48 @@ bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick)
 
   // Check if part is in one of the bins
   geometry_msgs::msg::Pose part_pose;
-  bool found_part = false;
+  part_pose = pose;
+  // bool found_part = false;
   std::string bin_side;
+  if (bin =="left"){
+    bin_side = "left_bins";
+  }
 
-  // Check left bins
-  for (auto part : left_bins_parts_)
-  {
-    if (part.part.type == part_to_pick.type &&
-        part.part.color == part_to_pick.color)
-    {
-      part_pose = Utils::multiply_poses(left_bins_camera_pose_, part.pose);
-      found_part = true;
-      bin_side = "left_bins";
-      break;
-    }
+  if(bin=="right"){
+    bin_side = "right_bins";
   }
-  // Check right bins
-  if (!found_part)
-  {
-    for (auto part : right_bins_parts_)
-    {
-      if (part.part.type == part_to_pick.type &&
-          part.part.color == part_to_pick.color)
-      {
-        part_pose = Utils::multiply_poses(right_bins_camera_pose_, part.pose);
-        found_part = true;
-        bin_side = "right_bins";
-        break;
-      }
-    }
-  }
-  if (!found_part)
-  {
-    RCLCPP_ERROR(get_logger(), "Unable to locate part");
-    return false;
-  }
+  // // Check left bins
+  // for (auto part : left_bins_parts_)
+  // {
+  //   if (part.part.type == part_to_pick.type &&
+  //       part.part.color == part_to_pick.color)
+  //   {
+  //     part_pose = Utils::multiply_poses(left_bins_camera_pose_, part.pose);
+  //     found_part = true;
+  //     bin_side = "left_bins";
+  //     break;
+  //   }
+  // }
+  // // Check right bins
+  // if (!found_part)
+  // {
+  //   for (auto part : right_bins_parts_)
+  //   {
+  //     if (part.part.type == part_to_pick.type &&
+  //         part.part.color == part_to_pick.color)
+  //     {
+  //       part_pose = Utils::multiply_poses(right_bins_camera_pose_, part.pose);
+  //       found_part = true;
+  //       bin_side = "right_bins";
+  //       break;
+  //     }
+  //   }
+  // }
+  // if (!found_part)
+  // {
+  //   RCLCPP_ERROR(get_logger(), "Unable to locate part");
+  //   return false;
+  // }
 
   double part_rotation = Utils::get_yaw_from_pose(part_pose);
 
@@ -1190,6 +1264,14 @@ bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick)
     move_to_target();
 
     change_gripper(station, "parts");
+
+    // auto temp_gripper_change_status = changed_gripper;
+    // while (temp_gripper_change_status == false) {
+    //   // RCLCPP_ERROR(get_logger(), "Unable to Receive Server Response of Gripper");
+    //   temp_gripper_change_status = changed_gripper;
+    // }
+    changed_gripper = true;
+    exit_tool_changer(station, "parts");
   }
 
   floor_robot_->setJointValueTarget("linear_actuator_joint",
@@ -1232,6 +1314,30 @@ bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick)
   return true;
 }
 
+//===================== Our Service Functions Callbacks for Place Part on Tray ===========//
+
+void FloorRobot::place_part_tray_srv_cb(
+    robot_commander_msgs::srv::PlacePartTray::Request::SharedPtr req,
+    robot_commander_msgs::srv::PlacePartTray::Response::SharedPtr res)
+{
+  RCLCPP_INFO(get_logger(), "Received request to place part on tray");
+  auto agv_id = req->agv_number;
+  auto quadrant = req->quadrant;
+
+  if (place_part_in_tray(agv_id, quadrant))
+  {
+    RCLCPP_INFO(get_logger(), "Successfully Placed Part on Tray");
+    res->success = true;
+    res->message = "Placed Part on Tray";
+  }
+  else
+  {
+    res->success = false;
+    res->message = "Unable to Place Part on Tray";
+  }
+}
+
+// ======================================= //
 //=============================================//
 bool FloorRobot::place_part_in_tray(int agv_num, int quadrant)
 {
@@ -1380,26 +1486,26 @@ bool FloorRobot::complete_kitting_task(ariac_msgs::msg::KittingTask task)
 
   pick_and_place_tray(task.tray_id, task.agv_number);
 
-  for (auto kit_part : task.parts)
-  {
-    pick_bin_part(kit_part.part);
-    place_part_in_tray(task.agv_number, kit_part.quadrant);
-  }
+  // for (auto kit_part : task.parts)
+  // {
+  //   pick_bin_part(kit_part.part);
+  //   place_part_in_tray(task.agv_number, kit_part.quadrant);
+  // }
 
-  // Check quality
-  auto request =
-      std::make_shared<ariac_msgs::srv::PerformQualityCheck::Request>();
-  request->order_id = current_order_.id;
-  auto result = quality_checker_->async_send_request(request);
-  result.wait();
+  // // Check quality
+  // auto request =
+  //     std::make_shared<ariac_msgs::srv::PerformQualityCheck::Request>();
+  // request->order_id = current_order_.id;
+  // auto result = quality_checker_->async_send_request(request);
+  // result.wait();
 
-  if (!result.get()->all_passed)
-  {
-    RCLCPP_ERROR(get_logger(), "Issue with shipment");
-  }
+  // if (!result.get()->all_passed)
+  // {
+  //   RCLCPP_ERROR(get_logger(), "Issue with shipment");
+  // }
 
-  // move agv to destination
-  move_agv(task.agv_number, task.destination);
+  // // move agv to destination
+  // move_agv(task.agv_number, task.destination);
 
   return true;
 }
