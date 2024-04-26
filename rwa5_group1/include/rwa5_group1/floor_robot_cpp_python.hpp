@@ -632,6 +632,7 @@ class FloorRobot : public rclcpp::Node {
 
   //! Specific callback group for the changing gripper
   rclcpp::CallbackGroup::SharedPtr change_gripper_cbg_;
+  rclcpp::CallbackGroup::SharedPtr set_gripper_state_cbg_;
   // ============================================================//
   //! Whether "kts1_camera" has received data or not
   bool kts1_camera_received_data = false;

@@ -39,6 +39,8 @@ FloorRobot::FloorRobot()
       create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   change_gripper_cbg_ =
       create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  set_gripper_state_cbg_ =
+      create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   options.callback_group = subscription_cbg_;
   gripper_options.callback_group = gripper_cbg_;
   // change_gripper_options.callback_group = change_gripper_cbg_;
@@ -123,7 +125,7 @@ FloorRobot::FloorRobot()
   // client to /ariac/floor_robot_enable_gripper
   floor_robot_gripper_enable_ =
       this->create_client<ariac_msgs::srv::VacuumGripperControl>(
-          "/ariac/floor_robot_enable_gripper");
+          "/ariac/floor_robot_enable_gripper",rmw_qos_profile_services_default,set_gripper_state_cbg_);
 
   //---------------------------------//
   // Services
