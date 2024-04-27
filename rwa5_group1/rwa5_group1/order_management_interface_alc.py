@@ -1008,9 +1008,10 @@ class OrderManagement(Node):
         current_status = self._agv_statuses.get(agv_id)
         current_agv_velocity = self._agv_velocities.get(agv_id)
 
-        while current_status != "WAREHOURSE" and current_agv_velocity <= 0.0:
+        while current_status != "WAREHOURSE" or current_agv_velocity > 0.0:
             current_status = self._agv_statuses.get(agv_id)
             current_agv_velocity = self._agv_velocities.get(agv_id)
+        
         # # Wait until the AGV is in the warehouse
         # while self._agv_statuses.get(agv_id) != "WAREHOUSE":
         #     time.sleep(1)
