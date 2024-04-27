@@ -17,7 +17,6 @@ def main(args=None):
     node = OrderManagement("order_management")
     executor = MultiThreadedExecutor()
     executor.add_node(node)
-
     try:
         executor.spin()
     finally:
