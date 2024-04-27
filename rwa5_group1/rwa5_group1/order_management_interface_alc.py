@@ -797,10 +797,10 @@ class OrderManagement(Node):
             tray_pose.position.x = tray_pose_curr[0]
             tray_pose.position.y = tray_pose_curr[1]
             tray_pose.position.z = tray_pose_curr[2]
-            tray_pose.orientation.x = 0.0
-            tray_pose.orientation.y = 0.0
-            tray_pose.orientation.z = 1.0
-            tray_pose.orientation.w = 0.0
+            tray_pose.orientation.x = tray_orientation_curr[0]
+            tray_pose.orientation.y = tray_orientation_curr[1]
+            tray_pose.orientation.z = tray_orientation_curr[2]
+            tray_pose.orientation.w = tray_orientation_curr[3]
             self._move_robot_to_tray(tray_id, tray_pose)
             robot_moved_tray_status_temp = self._moved_robot_to_tray
             while not robot_moved_tray_status_temp :
