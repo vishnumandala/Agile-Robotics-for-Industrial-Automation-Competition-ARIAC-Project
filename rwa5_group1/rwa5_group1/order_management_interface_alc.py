@@ -16,7 +16,7 @@ from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, Basic
 from ariac_msgs.srv import MoveAGV, SubmitOrder,ChangeGripper, VacuumGripperControl
 from std_srvs.srv import Trigger
 from queue import PriorityQueue
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose,Quaternion, TransformStamped
 from sensor_msgs.msg import Image
 from launch_ros.substitutions import FindPackageShare
 from cv_bridge import CvBridge, CvBridgeError
@@ -528,7 +528,7 @@ class OrderManagement(Node):
                     if self._Tray_Dictionary[table_id] is None:
                         self._Tray_Dictionary[table_id] = {}
                     else:
-                        self._Tray_Dictionary[table_id].update({tray_pose_id:{'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z], 'status':False}})
+                        self._Tray_Dictionary[table_id].update({tray_pose_id:{'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z,tray_world_pose.orientation.w], 'status':False}})
                     # self.get_logger().info(f"    - {self._Tray_Dictionary}")
     
                 
@@ -575,11 +575,11 @@ class OrderManagement(Node):
                     
                     if (type,color) in self._Bins_Dictionary[side].keys():
                         keys=self._Bins_Dictionary[side][(type,color)].keys()
-                        self._Bins_Dictionary[side][(type,color)][len(keys)]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z],'picked': False}
+                        self._Bins_Dictionary[side][(type,color)][len(keys)]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z,bin_world_pose.orientation.w],'picked': False}
                     
                     else:
                         self._Bins_Dictionary[side][(type,color)]={}
-                        self._Bins_Dictionary[side][(type,color)][0]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z],'picked': False}
+                        self._Bins_Dictionary[side][(type,color)][0]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z,bin_world_pose.orientation.w],'picked': False}
                     # self.get_logger().info(f"    - {self._Bins_Dictionary}")
 
     
@@ -612,11 +612,18 @@ class OrderManagement(Node):
         pose.position.z = frame3.p.z()
 
         # Getting Roll, Pitch, and Yaw from the rotation matrix
-        q = frame3.M.GetRPY()
+        # q = frame3.M.GetRPY()
+        # pose.orientation.x = q[0]
+        # pose.orientation.y = q[1]
+        # pose.orientation.z = q[2]
+        # pose.orientation.w = 0.0
+
+        # Get Quaternion 
+        q = frame3.M.GetQuaternion()
         pose.orientation.x = q[0]
         pose.orientation.y = q[1]
         pose.orientation.z = q[2]
-        pose.orientation.w = 0.0
+        pose.orientation.w = q[3]
 
         return pose
     
@@ -1008,10 +1015,14 @@ class OrderManagement(Node):
         current_status = self._agv_statuses.get(agv_id)
         current_agv_velocity = self._agv_velocities.get(agv_id)
 
-        while current_status != "WAREHOURSE" or current_agv_velocity > 0.0:
+        while (current_status != "WAREHOUSE" or current_agv_velocity > 0.0):
+            self.get_logger().info(f"In status{current_status},{current_agv_velocity}")
             current_status = self._agv_statuses.get(agv_id)
             current_agv_velocity = self._agv_velocities.get(agv_id)
-        
+        # while current_agv_velocity > 0.0 :
+        #     if current_agv_velocity!= self._agv_velocities.get(agv_id):
+        #         self.get_logger().info(f"in Velocity {current_status},{current_agv_velocity}")
+        #     current_agv_velocity = self._agv_velocities.get(agv_id)
         # # Wait until the AGV is in the warehouse
         # while self._agv_statuses.get(agv_id) != "WAREHOUSE":
         #     time.sleep(1)
