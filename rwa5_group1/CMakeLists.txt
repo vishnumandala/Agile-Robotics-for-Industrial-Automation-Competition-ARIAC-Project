@@ -51,7 +51,7 @@ include_directories(include)
 add_executable(start_ariac_competition src/start_ariac_competition.cpp)
 ament_target_dependencies(start_ariac_competition ${ARIAC_INCLUDE_DEPENDS}) 
 
-add_executable(moveit_cpp_python src/floor_robot_cpp_python.cpp src/main_cpp_python.cpp)
+add_executable(moveit_cpp_python src/ariac_cpp_node.cpp src/main_cpp_python.cpp)
 ament_target_dependencies(moveit_cpp_python ${ARIAC_INCLUDE_DEPENDS})
 
 
@@ -68,8 +68,7 @@ install(TARGETS
 ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
-  script/order_management.py
-  script/floor_robot_demo.py
+  script/ariac_python_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

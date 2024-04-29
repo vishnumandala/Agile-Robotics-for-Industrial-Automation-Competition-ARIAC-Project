@@ -1,9 +1,9 @@
-#include "rwa5_group1/floor_robot_cpp_python.hpp"
+#include "rwa5_group1/ariac_cpp_node.hpp"
 #include "rwa5_group1/utils.hpp"
 
 FloorRobot::FloorRobot()
-    : Node("floor_robot_demo_cpp_python"),
-      node_(std::make_shared<rclcpp::Node>("example_group_node")),
+    : Node("ariac_cpp_moveit"),
+      node_(std::make_shared<rclcpp::Node>("ariac_moveit_node")),
       executor_(std::make_shared<rclcpp::executors::MultiThreadedExecutor>()),
       planning_scene_()
 {
@@ -50,43 +50,7 @@ FloorRobot::FloorRobot()
       "/moveit_demo/floor_robot/go_home", 10,
       std::bind(&FloorRobot::floor_robot_sub_cb, this, std::placeholders::_1),
       options);
-  // subscription to /ariac/orders
-  orders_sub_ = this->create_subscription<ariac_msgs::msg::Order>(
-      "/ariac/orders", 1,
-      std::bind(&FloorRobot::orders_cb, this, std::placeholders::_1), options);
-  // subscription to /ariac/competition_state
-  competition_state_sub_ =
-      this->create_subscription<ariac_msgs::msg::CompetitionState>(
-          "/ariac/competition_state", 1,
-          std::bind(&FloorRobot::competition_state_cb, this,
-                    std::placeholders::_1),
-          options);
-  // subscription to /ariac/sensors/kts1_camera/image
-  kts1_camera_sub_ =
-      this->create_subscription<ariac_msgs::msg::AdvancedLogicalCameraImage>(
-          "/ariac/sensors/kts1_camera/image", rclcpp::SensorDataQoS(),
-          std::bind(&FloorRobot::kts1_camera_cb, this, std::placeholders::_1),
-          options);
-  // subscription to /ariac/sensors/kts2_camera/image
-  kts2_camera_sub_ =
-      this->create_subscription<ariac_msgs::msg::AdvancedLogicalCameraImage>(
-          "/ariac/sensors/kts2_camera/image", rclcpp::SensorDataQoS(),
-          std::bind(&FloorRobot::kts2_camera_cb, this, std::placeholders::_1),
-          options);
-  // subscription to /ariac/sensors/left_bins_camera/image
-  left_bins_camera_sub_ =
-      this->create_subscription<ariac_msgs::msg::AdvancedLogicalCameraImage>(
-          "/ariac/sensors/left_bins_camera/image", rclcpp::SensorDataQoS(),
-          std::bind(&FloorRobot::left_bins_camera_cb, this,
-                    std::placeholders::_1),
-          options);
-  // subscription to /ariac/sensors/right_bins_camera/image
-  right_bins_camera_sub_ =
-      this->create_subscription<ariac_msgs::msg::AdvancedLogicalCameraImage>(
-          "/ariac/sensors/right_bins_camera/image", rclcpp::SensorDataQoS(),
-          std::bind(&FloorRobot::right_bins_camera_cb, this,
-                    std::placeholders::_1),
-          options);
+  
   // subscription to /ariac/floor_robot_gripper/state
   floor_gripper_state_sub_ =
       this->create_subscription<ariac_msgs::msg::VacuumGripperState>(
@@ -95,26 +59,7 @@ FloorRobot::FloorRobot()
           std::bind(&FloorRobot::floor_gripper_state_cb, this,
                     std::placeholders::_1),
           gripper_options);
-  // subscription to /ariac/agv1_status
-  agv1_status_sub_ = this->create_subscription<ariac_msgs::msg::AGVStatus>(
-      "/ariac/agv1_status", 10,
-      std::bind(&FloorRobot::agv1_status_cb, this, std::placeholders::_1),
-      options);
-  // subscription to /ariac/agv2_status
-  agv2_status_sub_ = this->create_subscription<ariac_msgs::msg::AGVStatus>(
-      "/ariac/agv2_status", 10,
-      std::bind(&FloorRobot::agv2_status_cb, this, std::placeholders::_1),
-      options);
-  // subscription to /ariac/agv3_status
-  agv3_status_sub_ = this->create_subscription<ariac_msgs::msg::AGVStatus>(
-      "/ariac/agv3_status", 10,
-      std::bind(&FloorRobot::agv3_status_cb, this, std::placeholders::_1),
-      options);
-  // subscription to /ariac/agv4_status
-  agv4_status_sub_ = this->create_subscription<ariac_msgs::msg::AGVStatus>(
-      "/ariac/agv4_status", 10,
-      std::bind(&FloorRobot::agv4_status_cb, this, std::placeholders::_1),
-      options);
+  
   // client to /ariac/perform_quality_check
   quality_checker_ = this->create_client<ariac_msgs::srv::PerformQualityCheck>(
       "/ariac/perform_quality_check");
@@ -307,7 +252,7 @@ bool FloorRobot::move_robot_to_tray(
 
   // set_gripper_state(true);
 
-  wait_for_attach_completion(5.0);
+  wait_for_attach_completion(6.0);
 
   if (floor_gripper_state_.attached)
   {
@@ -480,114 +425,6 @@ bool FloorRobot::exit_tool_changer(std::string changing_station,
 }
 
 //=============================================//
-bool FloorRobot::start_competition()
-{
-  // Wait for competition state to be ready
-  while (competition_state_ != ariac_msgs::msg::CompetitionState::READY)
-  {
-  }
-
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client;
-
-  std::string srv_name = "/ariac/start_competition";
-
-  client = this->create_client<std_srvs::srv::Trigger>(srv_name);
-
-  auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
-
-  auto result = client->async_send_request(request);
-  result.wait();
-
-  return result.get()->success;
-}
-
-//=============================================//
-bool FloorRobot::end_competition()
-{
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client;
-
-  std::string srv_name = "/ariac/end_competition";
-
-  client = this->create_client<std_srvs::srv::Trigger>(srv_name);
-
-  auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
-
-  auto result = client->async_send_request(request);
-  result.wait();
-
-  return result.get()->success;
-}
-
-//=============================================//
-bool FloorRobot::lock_tray(int agv_num)
-{
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client;
-
-  std::string srv_name = "/ariac/agv" + std::to_string(agv_num) + "_lock_tray";
-
-  client = this->create_client<std_srvs::srv::Trigger>(srv_name);
-
-  auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
-
-  auto result = client->async_send_request(request);
-  result.wait();
-
-  return result.get()->success;
-}
-
-//=============================================//
-bool FloorRobot::move_agv(int agv_num, int destination)
-{
-  rclcpp::Client<ariac_msgs::srv::MoveAGV>::SharedPtr client;
-
-  std::string srv_name = "/ariac/move_agv" + std::to_string(agv_num);
-
-  client = this->create_client<ariac_msgs::srv::MoveAGV>(srv_name);
-
-  auto request = std::make_shared<ariac_msgs::srv::MoveAGV::Request>();
-  request->location = destination;
-
-  auto result = client->async_send_request(request);
-  result.wait();
-
-  return result.get()->success;
-}
-
-//=============================================//
-void FloorRobot::agv1_status_cb(
-    const ariac_msgs::msg::AGVStatus::ConstSharedPtr msg)
-{
-  agv_locations_[1] = msg->location;
-}
-
-//=============================================//
-void FloorRobot::agv2_status_cb(
-    const ariac_msgs::msg::AGVStatus::ConstSharedPtr msg)
-{
-  agv_locations_[2] = msg->location;
-}
-
-//=============================================//
-void FloorRobot::agv3_status_cb(
-    const ariac_msgs::msg::AGVStatus::ConstSharedPtr msg)
-{
-  agv_locations_[3] = msg->location;
-}
-
-//=============================================//
-void FloorRobot::agv4_status_cb(
-    const ariac_msgs::msg::AGVStatus::ConstSharedPtr msg)
-{
-  agv_locations_[4] = msg->location;
-}
-
-//=============================================//
-void FloorRobot::orders_cb(const ariac_msgs::msg::Order::ConstSharedPtr msg)
-{
-  orders_.push_back(*msg);
-}
-
-//=============================================//
 void FloorRobot::floor_robot_sub_cb(
     const std_msgs::msg::String::ConstSharedPtr msg)
 {
@@ -611,61 +448,6 @@ void FloorRobot::competition_state_cb(
   competition_state_ = msg->competition_state;
 }
 
-//=============================================//
-void FloorRobot::kts1_camera_cb(
-    const ariac_msgs::msg::AdvancedLogicalCameraImage::ConstSharedPtr msg)
-{
-  if (!kts1_camera_received_data)
-  {
-    RCLCPP_INFO(get_logger(), "Received data from kts1 camera");
-    kts1_camera_received_data = true;
-  }
-
-  kts1_trays_ = msg->tray_poses;
-  kts1_camera_pose_ = msg->sensor_pose;
-}
-
-//=============================================//
-void FloorRobot::kts2_camera_cb(
-    const ariac_msgs::msg::AdvancedLogicalCameraImage::ConstSharedPtr msg)
-{
-  if (!kts2_camera_received_data)
-  {
-    RCLCPP_INFO(get_logger(), "Received data from kts2 camera");
-    kts2_camera_received_data = true;
-  }
-
-  kts2_trays_ = msg->tray_poses;
-  kts2_camera_pose_ = msg->sensor_pose;
-}
-
-//=============================================//
-void FloorRobot::left_bins_camera_cb(
-    const ariac_msgs::msg::AdvancedLogicalCameraImage::ConstSharedPtr msg)
-{
-  if (!left_bins_camera_received_data)
-  {
-    RCLCPP_INFO(get_logger(), "Received data from left bins camera");
-    left_bins_camera_received_data = true;
-  }
-
-  left_bins_parts_ = msg->part_poses;
-  left_bins_camera_pose_ = msg->sensor_pose;
-}
-
-//=============================================//
-void FloorRobot::right_bins_camera_cb(
-    const ariac_msgs::msg::AdvancedLogicalCameraImage::ConstSharedPtr msg)
-{
-  if (!right_bins_camera_received_data)
-  {
-    RCLCPP_INFO(get_logger(), "Received data from right bins camera");
-    right_bins_camera_received_data = true;
-  }
-
-  right_bins_parts_ = msg->part_poses;
-  right_bins_camera_pose_ = msg->sensor_pose;
-}
 
 //=============================================//
 void FloorRobot::floor_gripper_state_cb(
@@ -904,12 +686,12 @@ void FloorRobot::wait_for_attach_completion(double timeout)
                          "Waiting for gripper attach");
 
     waypoints.clear();
-    starting_pose.position.z -= 0.001;
+    starting_pose.position.z -= 0.0008; // This changed by us
     waypoints.push_back(starting_pose);
 
-    move_through_waypoints(waypoints, 0.1, 0.1);
+    move_through_waypoints(waypoints, 0.1, 0.1);  
 
-    usleep(200);
+    usleep(800); // This changed by us
 
     // if (floor_gripper_state_.attached)
     //     return;
@@ -1015,147 +797,6 @@ bool FloorRobot::change_gripper(std::string changing_station,
   return true;
 }
 
-//========= Change Gripper Modification due to future.wait============//
-// void FloorRobot::change_gripper_cb(rclcpp::Client<ariac_msgs::srv::ChangeGripper>::SharedFuture future){
-//   auto status = future.wait_for(std::chrono::seconds(5));
-//   if (status == std::future_status::ready)
-//   {
-//     changed_gripper = true;
-//     RCLCPP_INFO(this->get_logger(),"Gripper Changed Successfully");
-
-//   } else {
-//       RCLCPP_INFO(this->get_logger(),"Still Waiting For Service Response");
-//   }
-// }
-
-//=============================================//
-
-
-bool FloorRobot::pick_and_place_tray(int tray_id, int agv_num)
-{
-  // Check if kit tray is on one of the two tables
-  geometry_msgs::msg::Pose tray_pose;
-  std::string station;
-  bool found_tray = false;
-
-  // Check table 1
-  for (auto tray : kts1_trays_)
-  {
-    if (tray.id == tray_id)
-    {
-      station = "kts1";
-      tray_pose = Utils::multiply_poses(kts1_camera_pose_, tray.pose);
-      found_tray = true;
-      break;
-    }
-  }
-  // Check table 2
-  if (!found_tray)
-  {
-    for (auto tray : kts2_trays_)
-    {
-      if (tray.id == tray_id)
-      {
-        station = "kts2";
-        tray_pose = Utils::multiply_poses(kts2_camera_pose_, tray.pose);
-        found_tray = true;
-        break;
-      }
-    }
-  }
-  if (!found_tray)
-    return false;
-
-  double tray_rotation = Utils::get_yaw_from_pose(tray_pose);
-
-  // Move floor robot to the corresponding kit tray table
-  if (station == "kts1")
-  {
-    floor_robot_->setJointValueTarget(floor_kts1_js_);
-  }
-  else
-  {
-    floor_robot_->setJointValueTarget(floor_kts2_js_);
-  }
-  move_to_target();
-
-  // Change gripper to tray gripper
-  if (floor_gripper_state_.type != "tray_gripper")
-  {
-    change_gripper(station, "trays");
-  }
-
-  // Move to tray
-  std::vector<geometry_msgs::msg::Pose> waypoints;
-
-  waypoints.push_back(Utils::build_pose(
-      tray_pose.position.x, tray_pose.position.y, tray_pose.position.z + 0.2,
-      set_robot_orientation(tray_rotation)));
-  waypoints.push_back(Utils::build_pose(tray_pose.position.x,
-                                        tray_pose.position.y,
-                                        tray_pose.position.z + pick_offset_,
-                                        set_robot_orientation(tray_rotation)));
-  move_through_waypoints(waypoints, 0.3, 0.3);
-
-  set_gripper_state(true);
-
-  wait_for_attach_completion(3.0);
-
-  // Add kit tray to planning scene
-  std::string tray_name = "kit_tray_" + std::to_string(tray_id);
-  add_single_model_to_planning_scene(tray_name, "kit_tray.stl", tray_pose);
-  floor_robot_->attachObject(tray_name);
-
-  // Move up slightly
-  waypoints.clear();
-  waypoints.push_back(Utils::build_pose(
-      tray_pose.position.x, tray_pose.position.y, tray_pose.position.z + 0.2,
-      set_robot_orientation(tray_rotation)));
-  move_through_waypoints(waypoints, 0.3, 0.3);
-
-  floor_robot_->setJointValueTarget(
-      "linear_actuator_joint",
-      rail_positions_["agv" + std::to_string(agv_num)]);
-  floor_robot_->setJointValueTarget("floor_shoulder_pan_joint", 0);
-
-  move_to_target();
-
-  auto agv_tray_pose =
-      get_pose_in_world_frame("agv" + std::to_string(agv_num) + "_tray");
-  auto agv_rotation = Utils::get_yaw_from_pose(agv_tray_pose);
-
-  waypoints.clear();
-  waypoints.push_back(Utils::build_pose(
-      agv_tray_pose.position.x, agv_tray_pose.position.y,
-      agv_tray_pose.position.z + 0.3, set_robot_orientation(agv_rotation)));
-
-  waypoints.push_back(Utils::build_pose(
-      agv_tray_pose.position.x, agv_tray_pose.position.y,
-      agv_tray_pose.position.z + kit_tray_thickness_ + drop_height_,
-      set_robot_orientation(agv_rotation)));
-
-  move_through_waypoints(waypoints, 0.2, 0.1);
-
-  set_gripper_state(false);
-
-  // object is detached in the planning scene
-  floor_robot_->detachObject(tray_name);
-
-  // publish to robot state
-  // LockAGVTray(agv_num);
-
-  waypoints.clear();
-  waypoints.push_back(Utils::build_pose(
-      agv_tray_pose.position.x, agv_tray_pose.position.y,
-      agv_tray_pose.position.z + 0.3, set_robot_orientation(0)));
-
-  move_through_waypoints(waypoints, 0.2, 0.1);
-
-  return true;
-}
-
-//=============================================//
-
 //===================== Our Service Functions Callbacks for Pick Part from Bin===========//
 
 void FloorRobot::pick_part_bin_srv_cb(
@@ -1202,38 +843,6 @@ bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick, geometry_msgs
   if(bin=="right"){
     bin_side = "right_bins";
   }
-  // // Check left bins
-  // for (auto part : left_bins_parts_)
-  // {
-  //   if (part.part.type == part_to_pick.type &&
-  //       part.part.color == part_to_pick.color)
-  //   {
-  //     part_pose = Utils::multiply_poses(left_bins_camera_pose_, part.pose);
-  //     found_part = true;
-  //     bin_side = "left_bins";
-  //     break;
-  //   }
-  // }
-  // // Check right bins
-  // if (!found_part)
-  // {
-  //   for (auto part : right_bins_parts_)
-  //   {
-  //     if (part.part.type == part_to_pick.type &&
-  //         part.part.color == part_to_pick.color)
-  //     {
-  //       part_pose = Utils::multiply_poses(right_bins_camera_pose_, part.pose);
-  //       found_part = true;
-  //       bin_side = "right_bins";
-  //       break;
-  //     }
-  //   }
-  // }
-  // if (!found_part)
-  // {
-  //   RCLCPP_ERROR(get_logger(), "Unable to locate part");
-  //   return false;
-  // }
 
   double part_rotation = Utils::get_yaw_from_pose(part_pose);
 
@@ -1262,14 +871,6 @@ bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick, geometry_msgs
     move_to_target();
 
     change_gripper(station, "parts");
-
-    // auto temp_gripper_change_status = changed_gripper;
-    // while (temp_gripper_change_status == false) {
-    //   // RCLCPP_ERROR(get_logger(), "Unable to Receive Server Response of Gripper");
-    //   temp_gripper_change_status = changed_gripper;
-    // }
-    // changed_gripper = true;
-    // exit_tool_changer(station, "parts");
   }
 
   floor_robot_->setJointValueTarget("linear_actuator_joint",
@@ -1291,7 +892,7 @@ bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick, geometry_msgs
 
   set_gripper_state(true);
 
-  wait_for_attach_completion(3.0);
+  wait_for_attach_completion(6.0); // This modified by us
 
   // Add part to planning scene
   std::string part_name =
@@ -1393,117 +994,5 @@ bool FloorRobot::place_part_in_tray(int agv_num, int quadrant)
   return true;
 }
 
-//=============================================//
-bool FloorRobot::complete_orders()
-{
-  // Wait for first order to be published
-  while (orders_.size() == 0)
-  {
-  }
 
-  bool success;
-  while (true)
-  {
-    if (competition_state_ == ariac_msgs::msg::CompetitionState::ENDED)
-    {
-      success = false;
-      break;
-    }
 
-    if (orders_.size() == 0)
-    {
-      if (competition_state_ !=
-          ariac_msgs::msg::CompetitionState::ORDER_ANNOUNCEMENTS_DONE)
-      {
-        // wait for more orders
-        RCLCPP_INFO(get_logger(), "Waiting for orders...");
-        while (orders_.size() == 0)
-        {
-        }
-      }
-      else
-      {
-        RCLCPP_INFO(get_logger(), "Completed all orders");
-        success = true;
-        break;
-      }
-    }
-
-    current_order_ = orders_.front();
-    orders_.erase(orders_.begin());
-    int kitting_agv_num = -1;
-
-    if (current_order_.type == ariac_msgs::msg::Order::KITTING)
-    {
-      FloorRobot::complete_kitting_task(current_order_.kitting_task);
-      kitting_agv_num = current_order_.kitting_task.agv_number;
-    }
-    else
-    {
-      RCLCPP_INFO(get_logger(), "Ignoring non-kitting tasks.");
-    }
-
-    // loop until the AGV is at the warehouse
-    auto agv_location = -1;
-    while (agv_location != ariac_msgs::msg::AGVStatus::WAREHOUSE)
-    {
-      if (kitting_agv_num == 1)
-        agv_location = agv_locations_[1];
-      else if (kitting_agv_num == 2)
-        agv_location = agv_locations_[2];
-      else if (kitting_agv_num == 3)
-        agv_location = agv_locations_[3];
-      else if (kitting_agv_num == 4)
-        agv_location = agv_locations_[4];
-    }
-
-    FloorRobot::submit_order(current_order_.id);
-  }
-  return success;
-}
-
-//=============================================//
-bool FloorRobot::submit_order(std::string order_id)
-{
-  rclcpp::Client<ariac_msgs::srv::SubmitOrder>::SharedPtr client;
-  std::string srv_name = "/ariac/submit_order";
-  client = this->create_client<ariac_msgs::srv::SubmitOrder>(srv_name);
-  auto request = std::make_shared<ariac_msgs::srv::SubmitOrder::Request>();
-  request->order_id = order_id;
-
-  auto result = client->async_send_request(request);
-  result.wait();
-
-  return result.get()->success;
-}
-
-//=============================================//
-bool FloorRobot::complete_kitting_task(ariac_msgs::msg::KittingTask task)
-{
-  go_home();
-
-  pick_and_place_tray(task.tray_id, task.agv_number);
-
-  // for (auto kit_part : task.parts)
-  // {
-  //   pick_bin_part(kit_part.part);
-  //   place_part_in_tray(task.agv_number, kit_part.quadrant);
-  // }
-
-  // // Check quality
-  // auto request =
-  //     std::make_shared<ariac_msgs::srv::PerformQualityCheck::Request>();
-  // request->order_id = current_order_.id;
-  // auto result = quality_checker_->async_send_request(request);
-  // result.wait();
-
-  // if (!result.get()->all_passed)
-  // {
-  //   RCLCPP_ERROR(get_logger(), "Issue with shipment");
-  // }
-
-  // // move agv to destination
-  // move_agv(task.agv_number, task.destination);
-
-  return true;
-}

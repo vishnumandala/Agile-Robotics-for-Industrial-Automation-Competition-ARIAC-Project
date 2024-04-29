@@ -3,20 +3,20 @@ File: order_management_interface.py
 Author: Ankur Mahesh Chavan (achavan1@umd.edu),Datta Lohith Gannavarapu (gdatta@umd.edu),
 Shail Kiritkumar Shah (sshah115@umd.edu) Vinay Krishna Bukka (vinay06@umd.edu),
 Vishnu Mandala (vishnum@umd.edu)
-Date: 03/28/2024
-Description: Module to initiate order and manage orders based on priority for AGV guidance.
+Date: 04/29/2024
+Description: Module to manage orders, perform kitting tasks, and logic for high priority orders
 """
 
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.qos import QoSProfile
-from rclpy.callback_groups import ReentrantCallbackGroup
-from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, BasicLogicalCameraImage,  VacuumGripperState, Part
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
+from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, BasicLogicalCameraImage,AdvancedLogicalCameraImage,  VacuumGripperState, Part
 from ariac_msgs.srv import MoveAGV, SubmitOrder,ChangeGripper, VacuumGripperControl
 from std_srvs.srv import Trigger
 from queue import PriorityQueue
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose,Quaternion, TransformStamped
 from sensor_msgs.msg import Image
 from launch_ros.substitutions import FindPackageShare
 from cv_bridge import CvBridge, CvBridgeError
@@ -133,13 +133,14 @@ class Order:
             self._order_task = CombinedTask(order_data)
         
         self._visting_first_time = True
+        self._order_completed_flag = False
         self._parts_status_tray = {}
         self._tray_pick_status = {}
 
 
 class OrderManagement(Node):
     """
-    Class to manage the orders and competition state.
+    Class to manage the orders, do agility challengers and service calls to move it actions.
 
     Inherited Class:
         Node (rclpy.node.Node): Node class
@@ -158,236 +159,92 @@ class OrderManagement(Node):
         self.set_parameters([sim_time])
 
 
-        self._order_callback_group = ReentrantCallbackGroup()
-        self._sensor_callback_group = ReentrantCallbackGroup()
-        self._competition_callback_group = ReentrantCallbackGroup()
-        self._agv_callback_group = ReentrantCallbackGroup()
-
         self.pkg_share = FindPackageShare("rwa5_group1").find("rwa5_group1")
+        qos_policy = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=10)
         
-        # Subscriptions
-        qos_policy = rclpy.qos.QoSProfile(reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
-                                          history=rclpy.qos.HistoryPolicy.KEEP_LAST,
-                                          depth=10)
-
-        self._competition_state_subscription = self.create_subscription(
-            CompetitionState,
-            "/ariac/competition_state",
-            self._competition_state_cb,
-            qos_profile=qos_policy,
-            callback_group=self._competition_callback_group,
-        )
-
-        self._left_table_camera_subscription = self.create_subscription(
-            BasicLogicalCameraImage,
-            "/ariac/sensors/left_table_camera/image",
-            lambda msg: self._table_camera_callback(msg,'Left'),
-            qos_profile=qos_policy,
-            callback_group=self._sensor_callback_group,
-        )
+        # Create callback groups
+        self.callback_groups = {
+            '_order_callback_group': ReentrantCallbackGroup(),
+            '_sensor_callback_group': ReentrantCallbackGroup(),
+            '_competition_callback_group': ReentrantCallbackGroup(),
+            '_agv_callback_group': ReentrantCallbackGroup(),
+        }
         
-        self._right_table_camera_subscription = self.create_subscription(
-            BasicLogicalCameraImage,
-            "/ariac/sensors/right_table_camera/image",
-            lambda msg: self._table_camera_callback(msg,'Right'),
-            qos_profile=qos_policy,
-            callback_group=self._sensor_callback_group,
-        )
+        # Define the subscriptions
+        subscriptions = {
+            '_left_table_camera_subscription': ('/ariac/sensors/left_table_camera/image', AdvancedLogicalCameraImage, lambda msg: self._table_camera_callback(msg, 'Left')),
+            '_right_table_camera_subscription': ('/ariac/sensors/right_table_camera/image', AdvancedLogicalCameraImage, lambda msg: self._table_camera_callback(msg, 'Right')),
+            '_left_bins_camera_subscription': ('/ariac/sensors/left_bins_camera/image', AdvancedLogicalCameraImage, lambda msg: self._bin_camera_callback(msg, 'Left')),  
+            '_right_bins_camera_subscription': ('/ariac/sensors/right_bins_camera/image', AdvancedLogicalCameraImage, lambda msg: self._bin_camera_callback(msg, 'Right')),
+            '_robot_gripper_state_subscription': ('/ariac/floor_robot_gripper_state', VacuumGripperState, self._robot_gripper_state_subscription_cb),
+        }  
         
-        self._left_bins_camera_subscription = self.create_subscription(
-            BasicLogicalCameraImage,
-            "/ariac/sensors/left_bins_camera/image",
-            lambda msg: self._bin_camera_callback(msg,'Left'),
-            qos_profile=qos_policy,
-            callback_group=self._sensor_callback_group,
-        )
+        # Create the subscriptions
+        for attr, (topic, msg_type, callback) in subscriptions.items():
+            setattr(self, attr, self.create_subscription(msg_type, topic, callback, qos_profile=qos_policy, callback_group=self.callback_groups['_sensor_callback_group']))
+            
+        self._competition_state_subscription = self.create_subscription(CompetitionState,"/ariac/competition_state",self._competition_state_cb,qos_profile=qos_policy,callback_group=self.callback_groups['_competition_callback_group'])
+        self._orders_subscription = self.create_subscription(OrderMsg,"/ariac/orders",self._orders_initialization_cb,qos_profile=qos_policy,callback_group=self.callback_groups['_order_callback_group'])
         
-        self._right_bins_camera_subscription = self.create_subscription(
-            BasicLogicalCameraImage,
-            "/ariac/sensors/right_bins_camera/image",
-            lambda msg: self._bin_camera_callback(msg,'Right'),
-            qos_profile=qos_policy,
-            callback_group=self._sensor_callback_group,
-        )
-        
-        self._right_table_rgb_subscription = self.create_subscription(
-            Image,
-            "/ariac/sensors/right_table_camera_rgb/rgb_image",
-            lambda msg: self._table_tray_callback(msg,'Right'),
-            qos_profile=qos_policy,
-            callback_group=self._sensor_callback_group,
-        )
-        
-        self._left_table_rgb_subscription = self.create_subscription(
-            Image,
-            "/ariac/sensors/left_table_camera_rgb/rgb_image",
-            lambda msg: self._table_tray_callback(msg,'Left'),
-            qos_profile=qos_policy,
-            callback_group=self._sensor_callback_group,
-        )
-        
-        self._right_bins_rgb_subscription = self.create_subscription(
-            Image,
-            "/ariac/sensors/right_bins_camera_rgb/rgb_image",
-            lambda msg: self._bin_part_callback(msg,'Right'),
-            qos_profile=qos_policy,
-            callback_group=self._sensor_callback_group,
-        )
-        
-        self._left_bins_rgb_subscription = self.create_subscription(
-            Image,
-            "/ariac/sensors/left_bins_camera_rgb/rgb_image",
-            lambda msg: self._bin_part_callback(msg,'Left'),
-            qos_profile=qos_policy,
-            callback_group=self._sensor_callback_group,
-        )
-        
-        self._orders_subscription = self.create_subscription(
-            OrderMsg,
-            "/ariac/orders",
-            self._orders_initialization_cb,
-            qos_profile=qos_policy,
-            callback_group=self._order_callback_group,
-        )
-
-        # To prevent unused variable warning
-        self._competition_state_subscription
-        self._left_table_camera_subscription
-        self._right_table_camera_subscription
-        self._left_bins_camera_subscription
-        self._right_bins_camera_subscription
-        self._right_table_rgb_subscription
-        self._left_table_rgb_subscription
-        self._right_bins_rgb_subscription
-        self._left_bins_rgb_subscription
-        self._orders_subscription
-        
-        
-        # Initialize variables
         self.get_logger().info(f"Node {node_name} initialized")
         self._orders_queue = PriorityQueue()
         self._agv_statuses = {}
+        self._agv_velocities = {}
         self.current_order = None  # Track the currently processing or waiting order
         self.competition_ended = False
-        self.tables_done = {'Left':False,'Right':False,'Left Rgb':False,'Right Rgb':False}
-        self.bins_done = {'Left':False,'Right':False,'Left Rgb':False,'Right Rgb':False}
-        self.trays={'Left':{},'Right':{}} # To store the tray ids
-        self.parts={'Left':{},'Right':{}} # To store the part types and colors
+        self.tables_done = {'Left':False,'Right':False}
+        self.bins_done = {'Left':False,'Right':False}
+
         
-        # Initialize YOLO model
-        self._model = YOLO(f'{self.pkg_share}/dataset/yolo/best.pt')
         
         self._Tray_Dictionary = {}
         self._Bins_Dictionary = {}
         self._Parts_Dictionary={'colors':{0: 'Red', 1: 'Green', 2: 'Blue', 3: 'Orange', 4: 'Purple'},
                       'types':{10:'Battery', 11:'Pump', 12:'Sensor', 13:'Regulator'}}
 
-        self._order_processing_thread = None
+        
+        
         self._end_condition_thread = None
         self.processing_lock = (
             threading.Condition()
         )  # Condition variable for synchronizing order processing
 
         ### MY Clients, Subscribers and variables for move it communication
-        self._tray_id_mapping = {0:MoveRobotToTray.Request.TRAY_ID0,1:MoveRobotToTray.Request.TRAY_ID1,2:MoveRobotToTray.Request.TRAY_ID2,3:MoveRobotToTray.Request.TRAY_ID3,
-                                 4:MoveRobotToTray.Request.TRAY_ID4,5:MoveRobotToTray.Request.TRAY_ID5,6:MoveRobotToTray.Request.TRAY_ID6,
-                                 7:MoveRobotToTray.Request.TRAY_ID7,8:MoveRobotToTray.Request.TRAY_ID8,9:MoveRobotToTray.Request.TRAY_ID9}
+        # Define the mappings
+        self._tray_id_mapping = {i: getattr(MoveRobotToTray.Request, f"TRAY_ID{i}") for i in range(10)}
+        self._agv_id_mapping = {i: getattr(MoveTrayToAGV.Request, f"AGV{i}") for i in range(1, 5)}
+        self._quadrant_mapping = {i: getattr(PlacePartTray.Request, f"QUADRANT{i}") for i in range(1, 5)}
+        self._part_color_mapping = {color: getattr(Part, color.upper()) for color in ["Red", "Green", "Blue", "Orange", "Purple"]}
+        self._part_type_mapping = {part_type: getattr(Part, part_type.upper()) for part_type in ["Battery", "Pump", "Sensor", "Regulator"]}
 
-        self._agv_id_mapping = {1:MoveTrayToAGV.Request.AGV1, 2:MoveTrayToAGV.Request.AGV2, 3:MoveTrayToAGV.Request.AGV3,4:MoveTrayToAGV.Request.AGV4}
-        self._quadrant_mapping = {1:PlacePartTray.Request.QUADRANT1, 2:PlacePartTray.Request.QUADRANT2,3:PlacePartTray.Request.QUADRANT3,4:PlacePartTray.Request.QUADRANT4}
-        self._part_color_mapping = {"Red": Part.RED, "Green": Part.GREEN, "Blue" : Part.GREEN, "Orange" : Part.ORANGE, "Purple": Part.PURPLE}
-        self._part_type_mapping = {"Battery":Part.BATTERY,"Pump":Part.PUMP,"Sensor":Part.SENSOR,"Regulator":Part.REGULATOR}
-        self._robot_gripper_state_subscription = self.create_subscription(
-            VacuumGripperState,
-            "/ariac/floor_robot_gripper_state",
-            self._robot_gripper_state_subscription_cb,
-            qos_profile=qos_policy,
-            callback_group=self._sensor_callback_group,
-        )
-        
         self._robot_gripper_state = "part_gripper"
 
+        # Define the service clients
+        clients = {
+            '_pick_part_bin_cli': (PickPartBin, "/commander/pick_part_bin"),
+            '_place_part_tray_cli': (PlacePartTray, "/commander/place_part_tray"),
+            '_move_robot_home_cli': (Trigger, "/commander/move_robot_home"),
+            '_move_robot_to_table_cli': (MoveRobotToTable, "/commander/move_robot_to_table"),
+            '_move_robot_to_tray_cli': (MoveRobotToTray, "/commander/move_robot_to_tray"),
+            '_move_tray_to_agv_cli': (MoveTrayToAGV, "/commander/move_tray_to_agv"),
+            '_enter_tool_changer_cli': (EnterToolChanger, "/commander/enter_tool_changer"),
+            '_exit_tool_changer_cli': (ExitToolChanger, "/commander/exit_tool_changer"),
+            '_set_gripper_state_cli': (VacuumGripperControl, "/ariac/floor_robot_enable_gripper"),
+            '_change_gripper_cli': (ChangeGripper, "/ariac/floor_robot_change_gripper"),
+        }
 
-        # client to Pick the part
-        self._pick_part_bin_cli = self.create_client(
-            PickPartBin, "/commander/pick_part_bin"
-        )
+        # Create the service clients
+        for attr, (srv_type, srv_name) in clients.items():
+            setattr(self, attr, self.create_client(srv_type, srv_name))
+
+
+        # Initialize the flags for the order processing
         self._picking_part_from_bin = False
         self._picked_part_from_bin = False
-        # Client to Place Part In tray
-        self._place_part_tray_cli = self.create_client(
-            PlacePartTray, "/commander/place_part_tray"
-        )
         self._placing_part_on_tray = False
         self._placed_part_on_tray = False
 
-
-        ##########################################
-        #### Demo Move it code 
-        #######################
-
-
-        # client to move the floor robot to the home position
-        self._move_robot_home_cli = self.create_client(
-            Trigger, "/commander/move_robot_home"
-        )
-
-        # client to move a robot to a table
-        self._move_robot_to_table_cli = self.create_client(
-            MoveRobotToTable, "/commander/move_robot_to_table"
-        )
-
-        # client to move a robot to a tray
-        self._move_robot_to_tray_cli = self.create_client(
-            MoveRobotToTray, "/commander/move_robot_to_tray"
-        )
-
-        # client to move a tray to an agv
-        self._move_tray_to_agv_cli = self.create_client(
-            MoveTrayToAGV, "/commander/move_tray_to_agv"
-        )
-
-        # client to move the end effector inside a tool changer
-        self._enter_tool_changer_cli = self.create_client(
-            EnterToolChanger, "/commander/enter_tool_changer"
-        )
-
-        # client to move the end effector outside a tool changer
-        self._exit_tool_changer_cli = self.create_client(
-            ExitToolChanger, "/commander/exit_tool_changer"
-        )
-
-        # client to activate/deactivate the vacuum gripper
-        self._set_gripper_state_cli = self.create_client(
-            VacuumGripperControl, "/ariac/floor_robot_enable_gripper"
-        )
-
-        # client to change the gripper type
-        # the end effector must be inside the tool changer before calling this service
-        self._change_gripper_cli = self.create_client(
-            ChangeGripper, "/ariac/floor_robot_change_gripper"
-        )
-
-        # ---- Timer ----
-        # Timer to trigger the robot actions
-        # Every second the timer callback is called and based on the flags the robot actions are triggered
-        # self._main_timer = self.create_timer(
-        #     1, self._main_timer_cb, callback_group=main_timer_cb_group
-        # )
-
-        # The following flags are used to ensure an action is not triggered multiple times
-        self._moving_robot_home = False
-        self._moving_robot_to_table = False
-        self._entering_tool_changer = False
-        self._changing_gripper = False
-        self._exiting_tool_changer = False
-        self._activating_gripper = False
-        self._deactivating_gripper = False
-        self._moving_robot_to_tray = False
-        self._moving_tray_to_agv = False
-        self._ending_demo = False
-
-        # The following flags are used to trigger the next action
+        # Flags to track the completion of actions
         self._kit_completed = False
         self._competition_started = False
         self._competition_state = None
@@ -400,6 +257,25 @@ class OrderManagement(Node):
         self._deactivated_gripper = False
         self._moved_robot_to_tray = False
         self._moved_tray_to_agv = False
+        self._locked_agv = False
+        self._agv_moved_warehouse = False
+        self._submitted_order = False
+
+
+        self._high_priority_orders = []
+        self._normal_orders =[]
+        self._paused_orders = []
+        self._start_process_order = False
+        self.current_order_is = None
+        self._order_announcements_count = 0
+        self._order_submitted_count = 0
+
+
+        # Start order processing thread
+        self._order_processing_thread = threading.Thread(
+                target=self.order_priority_timer_cb
+            )
+        self._order_processing_thread.start()
 
     def _orders_initialization_cb(self, msg):
         """
@@ -409,67 +285,78 @@ class OrderManagement(Node):
             msg (any): Message received from the topic
         """
         order = Order(msg)
+        self._order_announcements_count += 1
         self.get_logger().info(
             f"Received Order: {str(order._order_id)} with priority: {int(order._order_priority)}"
         )
+        if(order._order_priority):
+            self._high_priority_orders.append(order)
+        else:
+            self._normal_orders.append(order)
+        
+        # Create strings that list the order IDs from each list
+        high_priority_order_ids = ', '.join([str(order._order_id) for order in self._high_priority_orders])
+        normal_order_ids = ', '.join([str(order._order_id) for order in self._normal_orders])
+        self.get_logger().info(f"High Priority Orders: {high_priority_order_ids}")
+        self.get_logger().info(f"Normal Priority Orders: {normal_order_ids}")
 
-        with self.processing_lock:
-            if (
-                msg.priority and self.current_order and self.current_order.waiting
-            ):  # High-priority order interrupts the current order
-                # Update the elapsed_wait for the current order before pausing
-                current_time = time.time()
-                if hasattr(self.current_order, "wait_start_time"):
-                    interrupted_wait = current_time - self.current_order.wait_start_time
-                    self.current_order.elapsed_wait += interrupted_wait
-                    self.get_logger().info(
-                        f"Order {self.current_order._order_id}: Paused for high-priority order {msg.id}. Total elapsed wait time: {self.current_order.elapsed_wait:.2f} seconds."
-                    )
-                self.current_order.waiting = False  # Pause the current order's waiting
-                self._orders_queue.put(
-                    (1, self.current_order)
-                )  # Re-queue the paused order
-                self.current_order = order  # Set high-priority order as current order to be processed immediately
-            else:
-                self._orders_queue.put(
-                    (1 if msg.priority else 2, order)
-                )  # Regular queueing for orders
-
-            self.processing_lock.notify()
-
-        # If no order is currently being processed, start processing
-        if (
-            self._order_processing_thread is None
-            or not self._order_processing_thread.is_alive()
-        ):
-            self._order_processing_thread = threading.Thread(
-                target=self._process_orders
-            )
-            self._order_processing_thread.start()
-
+        # Create a subscription to the AGV status topic
         agv_id = order._order_task.agv_number
         if agv_id not in self._agv_statuses:
-            self.create_subscription(
-                AGVStatus,
-                f"/ariac/agv{agv_id}_status",
-                lambda msg: self._agv_status_cb(msg, agv_id),
-                QoSProfile(depth=10),
-                callback_group=self._agv_callback_group,
-            )
+            self.create_subscription(AGVStatus,f"/ariac/agv{agv_id}_status",lambda msg: self._agv_status_cb(msg, agv_id),QoSProfile(depth=10),callback_group=self.callback_groups['_agv_callback_group'])
+    
+    def order_priority_timer_cb(self):
+        """
+        Function to process the orders based on priority.
+        """
+        while False in self.tables_done.values() or False in self.bins_done.values():
+            pass
+        else:
+            if not self._competition_started:
+                self._competition_started = True
+                while True:
+                    h_len = len(self._high_priority_orders)
+                    n_len = len(self._normal_orders)
+                    self.get_logger().info(f"High priority {self._high_priority_orders} ")
+                    self.get_logger().info(f"Normal Priority {self._normal_orders} ")
+                    if(h_len > 0):
+                        self.current_order_is = "high"
+                        ord_to_process = self._high_priority_orders[0]
+                        self._process_order(ord_to_process)
+                        self._high_priority_orders.pop(0)   
+                        self._order_submitted_count += 1
+                    elif (n_len > 0):
+                        self.current_order_is = "normal"
+                        ord_to_process = self._normal_orders[0]
+                        self._process_order(ord_to_process)
+                        if(ord_to_process._order_completed_flag):
+                            self._normal_orders.pop(0)
+                            self._order_submitted_count += 1
+                    elif (self._order_submitted_count == self._order_announcements_count):
+                        self.get_logger().info(f"Ending the Process order thread!!!")
+                        break
 
+    def _check_priority_flag(self):
+        """
+        Check if the priority flag is set to True. If set, return True, else False.
+        """
+        if(len(self._high_priority_orders) > 0 and self.current_order_is == "normal"):
+            return True
+        else:
+            return False
+        
     def _competition_state_cb(self, msg):
         """
         Callback for competition state changes. Starts the end condition checker when order announcements are done.
         """
-        # Start the end condition checker when order announcements are done
+        # Check if the competition has started
+        if msg.competition_state == CompetitionState.STARTED:
+            self._start_process_order = True
+            
+        # Check if the competition has ended and set the flag 
         if msg.competition_state == CompetitionState.ORDER_ANNOUNCEMENTS_DONE:
-            if (
-                self._end_condition_thread is None
-                or not self._end_condition_thread.is_alive()
-            ):
-                self._end_condition_thread = threading.Thread(
-                    target=self._check_end_conditions
-                )
+            if (self._end_condition_thread is None or not self._end_condition_thread.is_alive()):
+                self._end_condition_thread = threading.Thread(target=self._check_end_conditions)
                 self._end_condition_thread.start()
 
     def _agv_status_cb(self, msg, agv_id):
@@ -483,32 +370,34 @@ class OrderManagement(Node):
         # Define a mapping for AGV locations
         location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
         status = location_status_map.get(msg.location, "OTHER")
-        if (agv_id not in self._agv_statuses):
+        current_velocity = msg.velocity
+        if agv_id not in self._agv_statuses or self._agv_statuses[agv_id] != status:
             self._agv_statuses[agv_id] = status
-        if(self._agv_statuses[agv_id] != status):
-            self._agv_statuses[agv_id] = status
+        if agv_id not in self._agv_velocities or self._agv_velocities[agv_id] != current_velocity:
+            self._agv_velocities[agv_id] = current_velocity
 
-    def _table_camera_callback(self, message, side='Unknown'):
-        """ Callback for table camera images. Detects poses of the trays on the table and updates the tray dictionary.
+    def _table_camera_callback(self, message, table_id='Unknown'):
+        """
+        Table Camera Callback is used to scan table cameras and store data
 
         Args:
-            message (BasicLogicalCameraImage): Message received from the topic
-            side (str, optional): Side of the table. Defaults to 'Unknown'.
+            message: Image type from topic
+            table_id: Arg passed when subscription callback created
         """
-        
-        if side == 'Unknown':
+        if table_id == 'Unknown':
             self.get_logger().warn("Unknown table ID")
             return
         
-        if self.tables_done[side] == False and self.tables_done[side+' Rgb'] == True:
+        if self.tables_done[table_id] == False:
             
-            self.tables_done[side] = True
-            self._Tray_Dictionary[side]={}
+            self._Tray_Dictionary[table_id]={}
             tray_poses = message.tray_poses
+            # self.get_logger().info(f" Tray Poses {tray_poses}")
             if len(tray_poses) > 0:
-                for i in range(len(tray_poses)):
-                    tray_pose_id = self.trays[side][i]
-                    
+                self.tables_done[table_id] = True
+                for tray in range(len(tray_poses)):
+                    tray_pose_id = tray_poses[tray].id
+                    # self.get_logger().info(f" Tray Poses ID {tray_pose_id}")
                     camera_pose = Pose()
                     camera_pose.position.x = message.sensor_pose.position.x
                     camera_pose.position.y = message.sensor_pose.position.y
@@ -519,219 +408,72 @@ class OrderManagement(Node):
                     camera_pose.orientation.w = message.sensor_pose.orientation.w
 
                     tray_pose = Pose()
-                    tray_pose.position.x = tray_poses[i].position.x
-                    tray_pose.position.y = tray_poses[i].position.y
-                    tray_pose.position.z = tray_poses[i].position.z
-                    tray_pose.orientation.x = tray_poses[i].orientation.x
-                    tray_pose.orientation.y = tray_poses[i].orientation.y
-                    tray_pose.orientation.z = tray_poses[i].orientation.z
-                    tray_pose.orientation.w = tray_poses[i].orientation.w
-
-
+                    tray_pose.position.x = tray_poses[tray].pose.position.x
+                    tray_pose.position.y = tray_poses[tray].pose.position.y
+                    tray_pose.position.z = tray_poses[tray].pose.position.z
+                    tray_pose.orientation.x = tray_poses[tray].pose.orientation.x
+                    tray_pose.orientation.y = tray_poses[tray].pose.orientation.y
+                    tray_pose.orientation.z = tray_poses[tray].pose.orientation.z
+                    tray_pose.orientation.w = tray_poses[tray].pose.orientation.w
                     tray_world_pose = self._multiply_pose(camera_pose, tray_pose)
-
-                    self._Tray_Dictionary[side][tray_pose_id]={'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z], 'status':False}
-
-    def _table_tray_callback(self, message, side='Unknown'):
-        """
-        Callback for table camera images. Detects trays on the table and updates the tray dictionary.
-
-        Args:
-            message (Image): Image message from the camera
-            side (str, optional): Side of the table. Defaults to 'Unknown'.
-        """
-        if side == 'Unknown':
-            self.get_logger().warn("Unknown side ID")
-            return
-        
-        # Check if RGB processing is already done to avoid re-processing
-        if self.tables_done[side+' Rgb'] == False:
-            self.tables_done[side+' Rgb'] = True
-
-            # Placeholder for detected trays
-            detected_trays = set()
-            
-            # Detecting aruco markers
-            bridge = CvBridge()
-
-            try:
-                cv_image = bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
-            except CvBridgeError as e:
-                self.get_logger().error(e)
-            image = cv_image
-            image = image[210:245, 50:590]
-            image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-            
-            # Edge detection on the image
-            edges = cv.Canny(image, 50, 150)
-            
-            # Loop through template images of the aruco markers
-            for i in range(10):
-                template_image_path = f'{self.pkg_share}/dataset/aruco/id_{i}.png'  
-                template_image = cv.imread(template_image_path, cv.IMREAD_GRAYSCALE)
-                template_image = cv.resize(template_image, (35, 35))
-                
-                # Edge detection on the template image
-                edges_template = cv.Canny(template_image, 50, 150)
-
-                # Template matching
-                res = cv.matchTemplate(edges, edges_template, cv.TM_CCOEFF_NORMED)
-                threshold = 0.3
-                loc = np.where(res >= threshold)
-                for pt in zip(*loc[::-1]):
-                    cv.rectangle(image, pt, (pt[0] + 35, pt[1] + 35), (0, 255, 0), 2)
-                    detected_trays.add((i,pt))
-            
-            # Sorting ids based on location of the tray
-            detected_trays = sorted(detected_trays, key=lambda x: x[1][0])  
-            
-            trays=[]
-            for i in range(len(detected_trays)):
-                if i == 0:
-                    trays.append(detected_trays[i][0])
-                else:
-                    if detected_trays[i][1][0] - detected_trays[i-1][1][0] > 35:
-                        trays.append(detected_trays[i][0])
-
-            self.trays[side] = trays
+                    if self._Tray_Dictionary[table_id] is None:
+                        self._Tray_Dictionary[table_id] = {}
+                    else:
+                        self._Tray_Dictionary[table_id].update({tray_pose_id:{'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z,tray_world_pose.orientation.w], 'status':False}})
+                    # self.get_logger().info(f"    - {self._Tray_Dictionary}")
+    
                 
     def _bin_camera_callback(self, message,side='Unknown'):
-        """ Callback for bin camera images. Detects poses of the parts in the bins and updates the parts dictionary.
+        """
+        Bin Camera Callback is used to scan bin cameras and store data
 
         Args:
-            message (BasicLogicalCameraImage): Message received from the topic
-            side (str, optional): _description_. Defaults to 'Unknown'.
+            message: Image type from topic
+            table_id: Arg passed when subscription callback created
         """
-        
         if side == 'Unknown':
             self.get_logger().warn("Unknown side ID")
             return
         
-        if self.bins_done[side] == False and self.bins_done[side+' Rgb'] == True:
-            self.bins_done[side] = True
+        if self.bins_done[side] == False:
             bin_poses = message.part_poses
-            bin_camera_pose = Pose()
-            bin_camera_pose.position.x = message.sensor_pose.position.x
-            bin_camera_pose.position.y = message.sensor_pose.position.y
-            bin_camera_pose.position.z = message.sensor_pose.position.z
-            bin_camera_pose.orientation.x = message.sensor_pose.orientation.x
-            bin_camera_pose.orientation.y = message.sensor_pose.orientation.y
-            bin_camera_pose.orientation.z = message.sensor_pose.orientation.z
-            bin_camera_pose.orientation.w = message.sensor_pose.orientation.w
+            if(len(bin_poses) > 0):
+                self.bins_done[side] = True
+                bin_camera_pose = Pose()
+                bin_camera_pose.position.x = message.sensor_pose.position.x
+                bin_camera_pose.position.y = message.sensor_pose.position.y
+                bin_camera_pose.position.z = message.sensor_pose.position.z
+                bin_camera_pose.orientation.x = message.sensor_pose.orientation.x
+                bin_camera_pose.orientation.y = message.sensor_pose.orientation.y
+                bin_camera_pose.orientation.z = message.sensor_pose.orientation.z
+                bin_camera_pose.orientation.w = message.sensor_pose.orientation.w
 
-            self._Bins_Dictionary[side]={}
-            for i in range(len(bin_poses)):
-                bin_part = self.parts[side][i]
-                bin_part_pose = Pose()
-                bin_part_pose.position.x = bin_poses[i].position.x
-                bin_part_pose.position.y = bin_poses[i].position.y
-                bin_part_pose.position.z = bin_poses[i].position.z
-                bin_part_pose.orientation.x = bin_poses[i].orientation.x
-                bin_part_pose.orientation.y = bin_poses[i].orientation.y
-                bin_part_pose.orientation.z = bin_poses[i].orientation.z
-                bin_part_pose.orientation.w = bin_poses[i].orientation.w
+                self._Bins_Dictionary[side]={}
+                for i in range(len(bin_poses)):
+                    bin_part = bin_poses[i].part
+                    bin_part_pose = Pose()
+                    bin_part_pose.position.x = bin_poses[i].pose.position.x
+                    bin_part_pose.position.y = bin_poses[i].pose.position.y
+                    bin_part_pose.position.z = bin_poses[i].pose.position.z
+                    bin_part_pose.orientation.x = bin_poses[i].pose.orientation.x
+                    bin_part_pose.orientation.y = bin_poses[i].pose.orientation.y
+                    bin_part_pose.orientation.z = bin_poses[i].pose.orientation.z
+                    bin_part_pose.orientation.w = bin_poses[i].pose.orientation.w
 
-                bin_world_pose = self._multiply_pose(bin_camera_pose, bin_part_pose)
-                type = bin_part[1]
-                color = bin_part[0]
-                
-                if (type,color) in self._Bins_Dictionary[side].keys():
-                    keys=self._Bins_Dictionary[side][(type,color)].keys()
-                    self._Bins_Dictionary[side][(type,color)][len(keys)]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z],'picked': False}
-                
-                else:
-                    self._Bins_Dictionary[side][(type,color)]={}
-                    self._Bins_Dictionary[side][(type,color)][0]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z],'picked': False}
+                    bin_world_pose = self._multiply_pose(bin_camera_pose, bin_part_pose)
+                    type = self._Parts_Dictionary['types'][bin_part.type]
+                    color = self._Parts_Dictionary['colors'][bin_part.color]
+                    
+                    if (type,color) in self._Bins_Dictionary[side].keys():
+                        keys=self._Bins_Dictionary[side][(type,color)].keys()
+                        self._Bins_Dictionary[side][(type,color)][len(keys)]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z,bin_world_pose.orientation.w],'picked': False}
+                    
+                    else:
+                        self._Bins_Dictionary[side][(type,color)]={}
+                        self._Bins_Dictionary[side][(type,color)][0]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z,bin_world_pose.orientation.w],'picked': False}
+                    # self.get_logger().info(f"    - {self._Bins_Dictionary}")
 
-    def _bin_part_callback(self, message, side='Unknown'):
-        """ Callback for bin camera images. Detects parts in the bins and updates the parts dictionary.
-
-        Args:
-            message (Image): Image message from the camera
-            side (str, optional): Side of the bin. Defaults to 'Unknown'.
-        """
-
-        if side == 'Unknown':
-            self.get_logger().warn("Unknown side ID")
-            return
-        
-        # Check if RGB processing is already done to avoid re-processing
-        if self.bins_done[side+' Rgb'] == False:
-            self.bins_done[side+' Rgb'] = True
-            
-            # Detecting Parts
-            bridge = CvBridge()
-            
-            try:
-                cv_image = bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
-            except CvBridgeError as e:
-                self.get_logger().error(f"Bridge conversion error: {e}")
-                return
-            
-            image = cv_image
-            
-            # Compute the median of the gradient magnitudes
-            sobelx = cv.Sobel(image, cv.CV_64F, 1, 0, ksize=5)
-            sobely = cv.Sobel(image, cv.CV_64F, 0, 1, ksize=5)
-            gradient_magnitude = np.sqrt(sobelx**2 + sobely**2)
-            median_val = np.median(gradient_magnitude)
-
-            # Set lower and upper thresholds based on the median
-            sigma = 0.33
-            lower = int(max(0, (1.0 - sigma) * median_val))
-            upper = int(min(255, (1.0 + sigma) * median_val))
-            
-            gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-            
-            # Edge detection on the image
-            edges = cv.Canny(gray, lower, upper)
-            edges = cv.cvtColor(edges, cv.COLOR_GRAY2RGB)
-                
-            # Detecting parts using YOLO
-            res = self._model(edges)
-            parts = []
-            for r in res:
-                boxes = r.boxes
-                for box in boxes:
-                    b=box.xyxy[0].to('cpu').detach().numpy().copy()
-                    c=box.cls
-                    class_name = self._model.names[int(c)]
-                    top = int(b[0])
-                    left = int(b[1])
-                    bottom = int(b[2])
-                    right = int(b[3])
-                    parts.append((class_name, top, left, bottom, right))
-            
-            # Sorting parts based on location of the part
-            parts = sorted(parts, key=lambda x: np.sqrt(x[1]**2 + x[2]**2))
-            
-            final_parts = []
-
-            hsv_ranges = {
-                'Red': ([169, 100, 100], [189, 255, 255]),
-                'Green': ([57, 100, 100], [77, 255, 255]),
-                'Blue': ([105, 100, 100], [125, 255, 255]),
-                'Orange': ([3, 100, 100], [23, 255, 255]),
-                'Purple': ([128, 100, 100], [148, 255, 255])
-            }
-            
-            # Detecting colors of the parts
-            for part in parts:
-                max_area = 0
-                part_color = None
-                hsv = cv.cvtColor(image[part[2]:part[4], part[1]:part[3]], cv.COLOR_BGR2HSV)
-                for color, (lower, upper) in hsv_ranges.items():
-                    lower = np.array(lower, dtype=np.uint8)
-                    upper = np.array(upper, dtype=np.uint8)
-                    mask = cv.inRange(hsv, lower, upper)
-                    area = cv.countNonZero(mask)
-                    if area > max_area:
-                        part_color = color
-                        max_area = area
-                final_parts.append((part_color, part[0]))
-                
-            self.parts[side] = final_parts
-
+    
     def _multiply_pose(self, pose1: Pose, pose2: Pose) -> Pose:
         '''
         Use KDL to multiply two poses together.
@@ -761,32 +503,57 @@ class OrderManagement(Node):
         pose.position.z = frame3.p.z()
 
         # Getting Roll, Pitch, and Yaw from the rotation matrix
-        q = frame3.M.GetRPY()
+        # q = frame3.M.GetRPY()
+        # pose.orientation.x = q[0]
+        # pose.orientation.y = q[1]
+        # pose.orientation.z = q[2]
+        # pose.orientation.w = 0.0
+
+        # Get Quaternion 
+        q = frame3.M.GetQuaternion()
         pose.orientation.x = q[0]
         pose.orientation.y = q[1]
         pose.orientation.z = q[2]
-        pose.orientation.w = 0.0
+        pose.orientation.w = q[3]
 
         return pose
     
-    def _process_orders(self):
-        """
-        Process all orders in the queue.
-        """
-        if False not in self.tables_done.values() and False not in self.bins_done.values():
-            self.get_logger().info("All tables and bins are detected. Starting order processing.")
-        while rclpy.ok():
-            with self.processing_lock:
-                while not self.current_order and self._orders_queue.empty():
-                    self.processing_lock.wait()  # Wait for an order to be queued or for the current order to be set
 
-                if (
-                    not self.current_order
-                ):  # No current order, get the next one from the queue
-                    _, self.current_order = self._orders_queue.get()
+    def _find_unused_tray(self, tray_id):
+        """
+        Find an unused tray in the dictionary.
+        
+        Args:
+            tray_id (int): ID of the tray
+            
+        Returns:
+            tuple: Tuple containing the side, pose, and orientation of the tray
+        """
+        for key in self._Tray_Dictionary.keys():
+            if tray_id in self._Tray_Dictionary[key] and not self._Tray_Dictionary[key][tray_id]['status']:
+                side = key
+                self._Tray_Dictionary[key][tray_id]['status'] = True
+                return side, self._Tray_Dictionary[key][tray_id]['position'], self._Tray_Dictionary[key][tray_id]['orientation']
 
-            # Process the current order (either a new one or a resumed one)
-            self._wait_and_process_current_order()
+    def _find_available_part(self, type, color):
+        """
+        Find an available part in the bins.
+        
+        Args:
+            type (str): Type of the part
+            color (str): Color of the part
+            
+        Returns:
+            tuple: Tuple containing the part, side, pose, and orientation
+        """
+        for side in ['Left', 'Right']:
+            if (type, color) in self._Bins_Dictionary[side]:
+                for k, part in enumerate(self._Bins_Dictionary[side][(type, color)].values()):
+                    if not part['picked']:
+                        self._Bins_Dictionary[side][(type, color)][k]['picked'] = True
+                        return part, side.lower(), part['position'], part['orientation']
+        return None, None, None, None
+    
 
     def _process_order(self, order):
         """
@@ -798,7 +565,7 @@ class OrderManagement(Node):
 
         if(order._visting_first_time):
             # Process the order
-            order.visting_first_time = False
+            order._visting_first_time = False
             self.get_logger().info(f"Processing order: {order._order_id}.")
             
             self.get_logger().info("")
@@ -806,195 +573,193 @@ class OrderManagement(Node):
             stars=len(order._order_id) + 6
             self.get_logger().info("-" * ((50 - stars) // 2) + f"Order {order._order_id}" + "-" * ((50 - stars) // 2))
             self.get_logger().info("-"*50)
-
+            # self.get_logger().info(f"Bin Dict {self._Bins_Dictionary}")
+            # self.get_logger().info(f"Tray Dict {self._Tray_Dictionary}")
             # Get the tray pose and orientation
             tray_id = order._order_task.tray_id
             # To get the Unuesd tray
-            for key in self._Tray_Dictionary.keys():
-                if tray_id not in self._Tray_Dictionary[key].keys():
-                    continue
-                if self._Tray_Dictionary[key][tray_id]['status'] == False:
-                    side = key
-                    self._Tray_Dictionary[key][tray_id]['status'] = True
-                    break
-            tray_pose = self._Tray_Dictionary[side][tray_id]['position']
-            tray_orientation = self._Tray_Dictionary[side][tray_id]['orientation']
+            side, tray_pose, tray_orientation = self._find_unused_tray(tray_id)
+            
             self.get_logger().info("Kitting Tray:")
             self.get_logger().info(f" - ID: {tray_id}")
             self.get_logger().info(f" - Position (xyz): {tray_pose}")
             self.get_logger().info(f" - Orientation (rpy): {tray_orientation}")
-            self.get_logger().info(f"Parts:")
+            self.get_logger().info("Parts:")
 
             # Tray Picked Status for AGV. Value in form = [Picked Status, Tray Pose, Tray Orientation]
-            order._tray_pick_status[tray_id] = {"status" : False, "tray_pose":tray_pose,"tray_id": tray_id,"tray_orientation":tray_orientation,"tray_side":side}
+            order._tray_pick_status[tray_id] = {"status": False, "tray_pose": tray_pose, "tray_id": tray_id,
+                                                "tray_orientation": tray_orientation, "tray_side": side}
+            
+            index = 0
             # Get the parts and their poses
             parts = order._order_task.parts
             for part in parts:
                 type = self._Parts_Dictionary['types'][part.part.type]
                 color = self._Parts_Dictionary['colors'][part.part.color]
                 part_quadrant = part.quadrant
-                final_part = None
-                if len(self._Bins_Dictionary['Left'].items()) > 0 or len(self._Bins_Dictionary['Right'].items()) > 0:
-                    if (type, color) in self._Bins_Dictionary['Left'].keys():
-                        bin_side = "left"
-                        for k, part_left in enumerate(self._Bins_Dictionary['Left'][(type, color)].values()):
-                            if not part_left['picked']:
-                                final_part = part_left
-                                self._Bins_Dictionary['Left'][(type, color)][k]['picked'] = True
-                                pose = part_left['position']
-                                orientation = part_left['orientation']
-                                break
-                    elif (type, color) in self._Bins_Dictionary['Right'].keys():
-                        bin_side = "right"
-                        for k, part_right in enumerate(self._Bins_Dictionary['Right'][(type, color)].values()):
-                            if not part_right['picked']:
-                                final_part = part_right
-                                self._Bins_Dictionary['Right'][(type, color)][k]['picked'] = True
-                                pose = part_right['position']
-                                orientation = part_right['orientation']
-                                break
-
-
-
-                # Dictionary in Class to store the parts information along with whether they are placed on tray on note.
-                # The order of list for key (type,color) is [Part_status_on_tray, part type, part color, part orientation, part quadrant]
-                order._parts_status_tray[(type,color)] = {"part_status":False, "part_type" : type, "part_color":color, "pose":pose, "orientation":orientation, "part_quadrant":part_quadrant, "bin":bin_side }
+                final_part, bin_side, pose, orientation = self._find_available_part(type, color)
                 
+                # Dictionary in Class to store the parts information along with whether they are placed on tray or not
+                order._parts_status_tray[(type, color, index)] = {"part_status": False, "part_type": type, "part_color": color,
+                                                            "pose": pose, "orientation": orientation,
+                                                            "part_quadrant": part_quadrant, "bin": bin_side}
+                index += 1
                 
-                # self.get_logger().info(f"    - {order._parts_status_tray[(type,color)]} ")
                 self.get_logger().info(f"    - {color} {type}")
                 self.get_logger().info(f"       - Position (xyz): {pose}")
                 self.get_logger().info(f"       - Orientation (rpy): {orientation}")
-            self.get_logger().info("-"*50)
-            self.get_logger().info("-"*50)
-            self.get_logger().info("-"*50)
-            self.execute_move_it_tasks(order)
             
+            self.get_logger().info("-"*50)
+            self.get_logger().info("-"*50)
+            self.get_logger().info("-"*50)
 
-
-
-
-
+        self.execute_move_it_tasks(order)
         
-        
-        agv_id = order._order_task.agv_number
-        # self._lock_tray(agv_id)
-        # self._move_agv(agv_id, order._order_task.destination)
-        # self._submit_order(agv_id, order._order_id)
-        self.get_logger().info(f"Order {order._order_id} processed and shipped.")
 
 
     def execute_move_it_tasks(self,order):
+        """
+        Execute the move it tasks for the order.
         
-        
+        Args:
+            order (Order): Order object to process
+        """
         tray_id = self._tray_id_mapping[order._order_task.tray_id]
         agv_id = self._agv_id_mapping[order._order_task.agv_number]
-        # 1. Move robot to home
+        
+        # self.get_logger().info(f"Order priority currently running is {str(order._order_id)} with priority: {int(order._order_priority)} with tray pick status {order._tray_pick_status}")
+        
+        if self._check_priority_flag():
+            return 
+        
+        ############################## 1. Move Robot to Home ##############################################
+        
         self._move_robot_home()
-
         robot_moved_home_status_temp = self._moved_robot_home
         while not robot_moved_home_status_temp :
             robot_moved_home_status_temp = self._moved_robot_home
         self._moved_robot_home = False
         self.get_logger().info("Python Node : Robot Moved to Home")
-        # Moving robot to table
+        
+        if self._check_priority_flag():
+            self.get_logger().info("Order priority received after initial move robot home. So returning")
+            return 
+        
+        ############################## 2. Pick Tray and Place on AGV ########################################
+        
         if (order._tray_pick_status[tray_id]["status"] ==  False):
             if order._tray_pick_status[tray_id]["tray_side"] == "Left":
                 tray_side_current = "kts1"
             elif order._tray_pick_status[tray_id]["tray_side"] == "Right":
                 tray_side_current = "kts2"
-                
+            
+            ############## 2.1. Move Robot to Table ##############
             if(tray_side_current == "kts1"):
                 self._move_robot_to_table(MoveRobotToTable.Request.KTS1)
             elif (tray_side_current == "kts2"):
                 self._move_robot_to_table(MoveRobotToTable.Request.KTS2)
 
-
             robot_moved_table_status_temp = self._moved_robot_to_table
             while not robot_moved_table_status_temp :
                 robot_moved_table_status_temp = self._moved_robot_to_table
             self._moved_robot_to_table = False
-            self.get_logger().info(f"Python Node : Robot Moved to Table")
-
-            ############## Performing Gripper Actions#########
-
+            self.get_logger().info("Python Node : Robot Moved to Table")
+            
+            if self._check_priority_flag():
+                self.get_logger().info("Order priority received robot moved to table for tray pickup. So returning")
+                return 
+            
+            ############## 2.2. Performing Gripper Actions ##############
             if(self._robot_gripper_state != "tray_gripper"):
-                # First Acttion: Enter tool changer
+                
+                ######### 2.2.1. Enter Tool Changer #########
                 self._enter_tool_changer(tray_side_current, "trays")
                 robot_entered_tool_changer = self._entered_tool_changer
                 while not robot_entered_tool_changer :
                     robot_entered_tool_changer = self._entered_tool_changer
                 self._entered_tool_changer = False
 
-
-                # Second Action: Change Gripper
+                ######### 2.2.2. Change Gripper #########
                 self._change_gripper(ChangeGripper.Request.TRAY_GRIPPER)
                 robot_changed_gripper = self._changed_gripper
                 while not robot_changed_gripper :
                     robot_changed_gripper = self._changed_gripper
                 self._changed_gripper = False
 
-                # Third Action : Exit Tool Changer
+                ######### 2.2.3. Exit Tool Changer #########
                 self._exit_tool_changer(tray_side_current, "trays")
                 robot_exited_gripper = self._exited_tool_changer
                 while not robot_exited_gripper :
                     robot_exited_gripper = self._exited_tool_changer
                 self._exited_tool_changer = False
 
-            # Fourth Action: Activate Gripper
+            ######### 2.2.4. Activate Gripper #########
             self._activate_gripper()
             robot_gripper_activated = self._activated_gripper
             while not robot_gripper_activated :
                 robot_gripper_activated = self._activated_gripper
             self._activated_gripper = False
-            #####End of Gripper Action#########
-
-            #Moving Robot to tray
+            
+            ############## Finished Gripper Actions ##############
+            
+            ######### 2.3. Move Robot to Tray #########
             tray_pose_curr = order._tray_pick_status[tray_id]["tray_pose"]
             tray_orientation_curr = order._tray_pick_status[tray_id]["tray_orientation"]
+            
             tray_pose = Pose()
             tray_pose.position.x = tray_pose_curr[0]
             tray_pose.position.y = tray_pose_curr[1]
             tray_pose.position.z = tray_pose_curr[2]
-            tray_pose.orientation.x = 0.0
-            tray_pose.orientation.y = 0.0
-            tray_pose.orientation.z = 1.0
-            tray_pose.orientation.w = 0.0
+            tray_pose.orientation.x = tray_orientation_curr[0]
+            tray_pose.orientation.y = tray_orientation_curr[1]
+            tray_pose.orientation.z = tray_orientation_curr[2]
+            tray_pose.orientation.w = tray_orientation_curr[3]
+            
             self._move_robot_to_tray(tray_id, tray_pose)
             robot_moved_tray_status_temp = self._moved_robot_to_tray
             while not robot_moved_tray_status_temp :
                 robot_moved_tray_status_temp = self._moved_robot_to_tray
             self._moved_robot_to_tray = False
-            self.get_logger().info(f"Python Node : Robot Moved to Tray")
+            self.get_logger().info("Python Node : Robot Moved to Tray")
 
-
-            ####### 2. Place tray on AgV ########
+            ############## 2.4. Place Tray on AGV ##############
             self._move_tray_to_agv(agv_id)
             robot_moved_tray_to_agv = self._moved_tray_to_agv
             while not robot_moved_tray_to_agv :
                 robot_moved_tray_to_agv = self._moved_tray_to_agv
             self._moved_tray_to_agv = False
 
-            ### Deactivate Gripper 
+            ############## 2.5. Deactivate Gripper ##############
             self._deactivate_gripper()
             robot_deactivate_gripper = self._deactivated_gripper
             while not robot_deactivate_gripper :
                 robot_deactivate_gripper = self._deactivated_gripper
             self._deactivated_gripper = False
 
-            ### Move Robot Home
-            self._move_robot_home()
-            robot_moved_home_status_temp = self._moved_robot_home
-            while not robot_moved_home_status_temp :
-                robot_moved_home_status_temp = self._moved_robot_home
-            self._moved_robot_home = False
-            self.get_logger().info("Python Node : Robot Moved to Home")
-            order._tray_pick_status[tray_id]["status"] =  True
-
+            ############## 2.6. Move Robot to Home ##############
+            # self._move_robot_home()
+            # robot_moved_home_status_temp = self._moved_robot_home
+            # while not robot_moved_home_status_temp :
+            #     robot_moved_home_status_temp = self._moved_robot_home
+            # self._moved_robot_home = False
+            # self.get_logger().info("Python Node : Robot Moved to Home")
             
-        # 3. Pick each part and place on agv tray
+            ############## 2.7. Update Tray Pick Status ##############
+            order._tray_pick_status[tray_id]["status"] =  True
+            
+            if self._check_priority_flag():
+                self.get_logger().info("Order priority tray is placed on agv. So returning")
+                return 
+            
+        # self.get_logger().info(f"Tray Pick Status {order._tray_pick_status}")
 
-        for k,v in order._parts_status_tray.items():
+        if self._check_priority_flag():
+            self.get_logger().info("Order priority received after tray placed on agv and moved home. So returning")
+            return 
+        
+        ############################## 3. Pick Part from Bin and Place on Tray ########################################
+
+        for key, v in order._parts_status_tray.items():            
             # self.get_logger().info("Python Node : Robot Moved to Home")
             if(v["part_status"] == False):
                 part_details = Part()
@@ -1004,6 +769,7 @@ class OrderManagement(Node):
                 part_pose_curr_orient = v["orientation"]
                 part_bin_side = v["bin"]
                 part_quadrant = self._quadrant_mapping[v["part_quadrant"]]
+                
                 part_pose = Pose()
                 part_pose.position.x = part_pose_curr[0]
                 part_pose.position.y = part_pose_curr[1]
@@ -1013,88 +779,74 @@ class OrderManagement(Node):
                 part_pose.orientation.z = part_pose_curr_orient[0]
                 part_pose.orientation.w = part_pose_curr_orient[0]
 
-                ############## MoveIT Actions for Part ############
+                ############## 3.1. Move Robot to Home ##############
+                # self._move_robot_home()
+                # robot_moved_home_status_temp = self._moved_robot_home
+                # while not robot_moved_home_status_temp :
+                #     robot_moved_home_status_temp = self._moved_robot_home
+                # self._moved_robot_home = False
+                # self.get_logger().info("Python Node : Robot Moved to Home")
 
-                ### Move Robot Home
-                self._move_robot_home()
-                robot_moved_home_status_temp = self._moved_robot_home
-                while not robot_moved_home_status_temp :
-                    robot_moved_home_status_temp = self._moved_robot_home
-                self._moved_robot_home = False
-                self.get_logger().info("Python Node : Robot Moved to Home")
-
-                ### Pick Part from Bin
-                self._robot_pick_part_from_bin(part_details,part_pose,part_bin_side)
+                ############## 3.2. Pick Part from Bin ##############
+                # time.sleep(3)
+                self._robot_pick_part_from_bin(part_details, part_pose, part_bin_side)
                 robot_picked_part_bin_temp = self._picked_part_from_bin
                 while not robot_picked_part_bin_temp :
                     robot_picked_part_bin_temp = self._picked_part_from_bin
                 self._picked_part_from_bin = False
-                self.get_logger().info("Python Node : Part Picked From Bin")
+                # self.get_logger().info("Python Node : Part Picked From Bin")
 
-                ### Part Placed on Tray
+                ############## 3.3. Place Part on Tray ##############
+                # time.sleep(3)
                 self._robot_place_part_on_tray(agv_id,part_quadrant)
                 robot_placed_part_tray_temp = self._placed_part_on_tray
                 while not robot_placed_part_tray_temp :
                     robot_placed_part_tray_temp = self._placed_part_on_tray
                 self._placed_part_on_tray = False
-                self.get_logger().info("Python Node : Part Placed on Tray")
+                # self.get_logger().info("Python Node : Part Placed on Tray")
+                
+                v["part_status"] = True     # Mark the part as placed on tray
+                
+                if self._check_priority_flag():
+                    self.get_logger().info("Order priority received after a part is placed. So returning")
+                    return 
+        ############################## 4. Check Order Completion ########################################
+        
+        # self.get_logger().info(f"Order Status{order._parts_status_tray} ")
+        order_completed_flag = True
+        for k,v in order._parts_status_tray.items():
+            if(v["part_status"] ==  False):
+                order_completed_flag = False
+                break
 
-                v["part_status"] == True
+        ############################## 5. Process Order ##################################################
+        if(order_completed_flag):
+            order._order_completed_flag = True
+            
+            ############## 5.1. Lock Tray ##############
+            self._lock_tray(agv_id)
+            agv_lock_status_temp = self._locked_agv
+            while not agv_lock_status_temp :
+                agv_lock_status_temp = self._locked_agv
+            self._locked_agv = False
+            
+            ############## 5.2. Move AGV to Shipping Station ##############
+            self._move_agv(agv_id, order._order_task.destination)
+            move_agv_status_temp = self._agv_moved_warehouse
+            while not move_agv_status_temp :
+                move_agv_status_temp = self._agv_moved_warehouse
+            self._agv_moved_warehouse = False
+            
+            ############## 5.3. Submit Order ##############
+            self._submit_order(agv_id, order._order_id)
+            submit_order_temp_status = self._submitted_order
+            while not submit_order_temp_status :
+                submit_order_temp_status = self._submitted_order
+            self._submitted_order = False
+            
+            self.get_logger().info(f"Order {order._order_id} processed and shipped.")
 
-
-
-
-
-
-    def _wait_and_process_current_order(self):
-        """
-        Wait for the current order's waiting period to finish, then process the order.
-        """
-        order = self.current_order
-        if order.elapsed_wait > 0:
-            # Calculate the remaining wait time for a resuming order
-            remaining_wait = max(3-order.elapsed_wait, 0)
-            # self.get_logger().info(
-            #     f"Order {order._order_id} resuming wait with {remaining_wait:.2f} seconds remaining."
-            # )
-        else:
-            # Full wait time for a first-time wait
-            remaining_wait = 3
-        order.wait_start_time = time.time()
-
-        order.waiting = True  # Ensure order.waiting is set to True whether it's a new wait or a resumed one
-        # self.get_logger().info(
-        #     f"Order {order._order_id}: Waiting for {remaining_wait:.2f} seconds before processing."
-        # )
-
-        while remaining_wait > 0:
-            start_wait = time.time()
-            time.sleep(min(0.1, remaining_wait))
-            with self.processing_lock:
-                if not order.waiting:
-                    # If the order's waiting is interrupted, adjust the elapsed wait time and pause the wait
-                    paused_wait = time.time() - start_wait
-                    order.elapsed_wait += paused_wait
-                    # self.get_logger().info(
-                    #     f"Order {order._order_id}: Wait paused at {paused_wait:.2f} seconds. Total elapsed wait time: {order.elapsed_wait:.2f} seconds."
-                    # )
-                    return  # Exit the wait loop if the order is paused
-
-            actual_waited = time.time() - start_wait
-            remaining_wait -= actual_waited
-
-        total_waited = time.time() - order.wait_start_time
-        order.elapsed_wait += total_waited  # Update the total elapsed wait time
-        order.waiting = False  # Set waiting to False after the wait is completed
-
-        # self.get_logger().info(
-        #     f"Order {order._order_id}: Total elapsed wait time before processing: {order.elapsed_wait:.2f} seconds."
-        # )
-        self._process_order(order)  # Proceed to process the order
-
-        with self.processing_lock:
-            self.current_order = None  # Clear the current order after processing
-            self.processing_lock.notify()  # Notify potentially waiting threads that the current order has been processed
+        return 
 
     def _lock_tray(self, agv):
         """Function to lock the tray
@@ -1123,6 +875,7 @@ class OrderManagement(Node):
         if future.result() is not None:
             response = future.result()
             if response:
+                self._locked_agv = True
                 self.get_logger().info(f"AGV {agv} locked")
         else:
             self.get_logger().warn(f"Unable to lock AGV {agv}")
@@ -1157,6 +910,7 @@ class OrderManagement(Node):
         if future.result() is not None:
             response = future.result()
             if response:
+                self._agv_moved_warehouse = True
                 self.get_logger().info(f"AGV: {agv} moved to {destination}")
                 # self._agv_statuses[agv] = 'WAREHOUSE'
         else:
@@ -1174,15 +928,12 @@ class OrderManagement(Node):
         self.get_logger().info(f"Submit Order service called")
 
         current_status = self._agv_statuses.get(agv_id)
+        current_agv_velocity = self._agv_velocities.get(agv_id)
 
-        for i in range(200):
-            if current_status == "WAREHOURSE":
-                break
+        while (current_status != "WAREHOUSE" or current_agv_velocity > 0.0):
+            self.get_logger().info(f"In status{current_status},{current_agv_velocity}")
             current_status = self._agv_statuses.get(agv_id)
-        # # Wait until the AGV is in the warehouse
-        # while self._agv_statuses.get(agv_id) != "WAREHOUSE":
-        #     time.sleep(1)
-        #     rclpy.spin_once(self)
+            current_agv_velocity = self._agv_velocities.get(agv_id)
 
         self._submit_order_client = self.create_client(
             SubmitOrder, "/ariac/submit_order")
@@ -1201,6 +952,7 @@ class OrderManagement(Node):
         if future.result() is not None:
             response = future.result()
             if response:
+                self._submitted_order = True
                 self.get_logger().info(f"Order submitted")
         else:
             self.get_logger().warn(f"Unable to submit order")
@@ -1210,13 +962,10 @@ class OrderManagement(Node):
         Periodically check if all orders are processed and AGVs are in warehouse, then end competition.
         """
         while not self.competition_ended and rclpy.ok():
-            if self._orders_queue.empty() and all(
-                status == "WAREHOUSE" for status in self._agv_statuses.values()
-            ):
-                self.get_logger().info(
-                    "All orders processed and AGVs at destination. Preparing to end competition."
-                )
+            if (all(status == "WAREHOUSE" for status in self._agv_statuses.values()) and self._order_submitted_count == self._order_announcements_count):
+                self.get_logger().info("All orders processed and AGVs at destination. Preparing to end competition.")
                 self._end_competition()
+                self._order_processing_thread.join()
             time.sleep(5)  # Check every 5 seconds
 
     def _end_competition(self):
@@ -1225,24 +974,22 @@ class OrderManagement(Node):
         """
         if not self.competition_ended:
             self.competition_ended = True
-            self.get_logger().info(f"End competition service called")
-            self._end_competition_client = self.create_client(
-                Trigger, "/ariac/end_competition", callback_group=self._competition_callback_group
-            )
+            self.get_logger().info("End competition service called")
+            self._end_competition_client = self.create_client(Trigger, "/ariac/end_competition", callback_group=self.callback_groups['_competition_callback_group'])
             request = Trigger.Request()
             future = self._end_competition_client.call_async(request)
             future.add_done_callback(lambda future: self._end_competition_cb(future))
 
-
     def _end_competition_cb(self,future):
-            # rclpy.spin_until_future_complete(self, future)
-
-            if future.result() is not None:
-                response = future.result()
-                if response:
-                    self.get_logger().info(f"Competition ended")
-            else:
-                self.get_logger().warn(f"Unable to end competition")
+        """
+        Callback function of End Competition where the async response from server is handled
+        """
+        if future.result() is not None:
+            response = future.result()
+            if response:
+                self.get_logger().info("Competition ended")
+        else:
+            self.get_logger().warn("Unable to end competition")
 
     
     #####################################################################

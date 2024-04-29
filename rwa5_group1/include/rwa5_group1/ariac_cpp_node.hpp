@@ -103,54 +103,6 @@ class FloorRobot : public rclcpp::Node {
    */
   ~FloorRobot();
   //-----------------------------//
-
-  /**
-   * @brief Start the competition
-   *
-   * @return true  Successfully started the competition
-   * @return false  Failed to start the competition
-   */
-  bool start_competition();
-  //-----------------------------//
-
-  /**
-   * @brief End the competition
-   *
-   * @return true  Successfully ended the competition
-   * @return false  Failed to end the competition
-   */
-  bool end_competition();
-  //-----------------------------//
-
-  /**
-   * @brief Lock tray on the AGV
-   *
-   * @param agv_num  Number of the AGV to lock the tray on
-   * @return true  Successfully locked the tray
-   * @return false  Failed to lock the tray
-   */
-  bool lock_tray(int agv_num);
-  //-----------------------------//
-
-  /**
-   * @brief Move an AGV to a location
-   *
-   * @param agv_num  Number of the AGV to move
-   * @param destination  Destination to move the AGV to
-   * @return true  Successfully moved the AGV
-   * @return false  Failed to move the AGV
-   */
-  bool move_agv(int agv_num, int destination);
-  //-----------------------------//
-
-  /**
-   * @brief Complete all the announced orders
-   *
-   * @return true Successfully completed all the orders
-   * @return false Failed to complete all the orders
-   */
-  bool complete_orders();
-
   /**
    * @brief Send the floor robot to the home configuration
    */
@@ -348,26 +300,7 @@ class FloorRobot : public rclcpp::Node {
   bool exit_tool_changer(std::string changing_station,
                           std::string gripper_type);
 
-  //=========== END PYTHON - C++ ===========//
-
-  /**
-   * @brief Complete a single kitting task
-   *
-   * @param task  Kitting task to complete
-   * @return true  Successfully completed the kitting task
-   * @return false Failed to complete the kitting task
-   */
-  bool complete_kitting_task(ariac_msgs::msg::KittingTask task);
-  //-----------------------------//
-
-  /**
-   * @brief Submit an order
-   *
-   * @param order_id ID of the order to submit
-   */
-  bool submit_order(std::string order_id);
-  //-----------------------------//
-
+  
   /**
    * @brief Enable/disable the gripper on the floor robot
    *
@@ -545,31 +478,12 @@ class FloorRobot : public rclcpp::Node {
   //! Subscriber for "/ariac/floor_robot_gripper_state" topic
   rclcpp::Subscription<ariac_msgs::msg::VacuumGripperState>::SharedPtr
       floor_gripper_state_sub_;
-  //! Subscriber for "/ariac/orders" topic
-  rclcpp::Subscription<ariac_msgs::msg::Order>::SharedPtr orders_sub_;
-  //! Subscriber for "/ariac/agv1_status" topic
-  rclcpp::Subscription<ariac_msgs::msg::AGVStatus>::SharedPtr agv1_status_sub_;
-  //! Subscriber for "/ariac/agv2_status" topic
-  rclcpp::Subscription<ariac_msgs::msg::AGVStatus>::SharedPtr agv2_status_sub_;
-  //! Subscriber for "/ariac/agv3_status" topic
-  rclcpp::Subscription<ariac_msgs::msg::AGVStatus>::SharedPtr agv3_status_sub_;
-  //! Subscriber for "/ariac/agv4_status" topic
-  rclcpp::Subscription<ariac_msgs::msg::AGVStatus>::SharedPtr agv4_status_sub_;
+
+  
   //! Subscriber for "/ariac/competition_state" topic
   rclcpp::Subscription<ariac_msgs::msg::CompetitionState>::SharedPtr
       competition_state_sub_;
-  //! Subscriber for "/ariac/sensors/kts1_camera/image" topic
-  rclcpp::Subscription<ariac_msgs::msg::AdvancedLogicalCameraImage>::SharedPtr
-      kts1_camera_sub_;
-  //! Subscriber for "/ariac/sensors/kts2_camera/image" topic
-  rclcpp::Subscription<ariac_msgs::msg::AdvancedLogicalCameraImage>::SharedPtr
-      kts2_camera_sub_;
-  //! Subscriber for "/ariac/sensors/left_bins_camera/image" topic
-  rclcpp::Subscription<ariac_msgs::msg::AdvancedLogicalCameraImage>::SharedPtr
-      left_bins_camera_sub_;
-  //! Subscriber for "/ariac/sensors/right_bins_camera/image" topic
-  rclcpp::Subscription<ariac_msgs::msg::AdvancedLogicalCameraImage>::SharedPtr
-      right_bins_camera_sub_;
+  
   // Orders List
   // competitor_interfaces::msg::FloorRobotTask current_order_;
   // std::vector<competitor_interfaces::msg::FloorRobotTask> orders_;
@@ -591,38 +505,6 @@ class FloorRobot : public rclcpp::Node {
   ariac_msgs::msg::VacuumGripperState floor_gripper_state_;
   //! Part attached to the gripper.
   ariac_msgs::msg::Part floor_robot_attached_part_;
-  //! Pose of the camera "kts1_camera" in the world frame
-  /*!
-  \note This attribute is set in the camera callback. You can hardcode it if you
-  prefer.
-  */
-  geometry_msgs::msg::Pose kts1_camera_pose_;
-  //! Pose of the camera "kts2_camera" in the world frame
-  /*!
-  \note This attribute is set in the camera callback. You can hardcode it if you
-  prefer.
-  */
-  geometry_msgs::msg::Pose kts2_camera_pose_;
-  //! Pose of the camera "left_bins_camera" in the world frame
-  /*!
-  \note This attribute is set in the camera callback. You can hardcode it if you
-  prefer.
-  */
-  geometry_msgs::msg::Pose left_bins_camera_pose_;
-  //! Pose of the camera "right_bins_camera" in the world frame
-  /*!
-  \note This attribute is set in the camera callback. You can hardcode it if you
-  prefer.
-  */
-  geometry_msgs::msg::Pose right_bins_camera_pose_;
-  //! Pose of trays found by "kts1_camera"
-  std::vector<ariac_msgs::msg::KitTrayPose> kts1_trays_;
-  //! Pose of trays found by "kts2_camera"
-  std::vector<ariac_msgs::msg::KitTrayPose> kts2_trays_;
-  //! Pose of trays found by "left_bins_camera"
-  std::vector<ariac_msgs::msg::PartPose> left_bins_parts_;
-  //! Pose of trays found by "right_bins_camera"
-  std::vector<ariac_msgs::msg::PartPose> right_bins_parts_;
   //! Callback group for the subscriptions
   rclcpp::CallbackGroup::SharedPtr subscription_cbg_;
   //! Specific callback group for the state of the gripper
@@ -634,44 +516,14 @@ class FloorRobot : public rclcpp::Node {
   rclcpp::CallbackGroup::SharedPtr change_gripper_cbg_;
   rclcpp::CallbackGroup::SharedPtr set_gripper_state_cbg_;
   // ============================================================//
-  //! Whether "kts1_camera" has received data or not
-  bool kts1_camera_received_data = false;
-  //! Whether "kts2_camera" has received data or not
-  bool kts2_camera_received_data = false;
-  //! Whether "left_bins_camera" has received data or not
-  bool left_bins_camera_received_data = false;
-  //! Whether "right_bins_camera" has received data or not
-  bool right_bins_camera_received_data = false;
   //! Callback for "/moveit_demo/demo" topic
   void floor_robot_sub_cb(const std_msgs::msg::String::ConstSharedPtr msg);
-  //! Callback for "/ariac/orders" topic
-  void orders_cb(const ariac_msgs::msg::Order::ConstSharedPtr msg);
-  //! Callback for "/ariac/sensors/kts1_camera/image" topic
-  void kts1_camera_cb(
-      const ariac_msgs::msg::AdvancedLogicalCameraImage::ConstSharedPtr msg);
-  //! Callback for "/ariac/sensors/kts2_camera/image" topic
-  void kts2_camera_cb(
-      const ariac_msgs::msg::AdvancedLogicalCameraImage::ConstSharedPtr msg);
-  //! Callback for "/ariac/sensors/left_bins_camera/image" topic
-  void left_bins_camera_cb(
-      const ariac_msgs::msg::AdvancedLogicalCameraImage::ConstSharedPtr msg);
-  //! Callback for "/ariac/sensors/right_bins_camera/image" topic
-  void right_bins_camera_cb(
-      const ariac_msgs::msg::AdvancedLogicalCameraImage::ConstSharedPtr msg);
   //! Callback for "/ariac/competition_state" topic
   void competition_state_cb(
       const ariac_msgs::msg::CompetitionState::ConstSharedPtr msg);
   //! Callback for "/ariac/floor_robot_gripper_state" topic
   void floor_gripper_state_cb(
       const ariac_msgs::msg::VacuumGripperState::ConstSharedPtr msg);
-  //! Callback for "/ariac/agv1_status" topic
-  void agv1_status_cb(const ariac_msgs::msg::AGVStatus::ConstSharedPtr msg);
-  //! Callback for "/ariac/agv2_status" topic
-  void agv2_status_cb(const ariac_msgs::msg::AGVStatus::ConstSharedPtr msg);
-  //! Callback for "/ariac/agv3_status" topic
-  void agv3_status_cb(const ariac_msgs::msg::AGVStatus::ConstSharedPtr msg);
-  //! Callback for "/ariac/agv4_status" topic
-  void agv4_status_cb(const ariac_msgs::msg::AGVStatus::ConstSharedPtr msg);
 
   //! Client for "/ariac/perform_quality_check" service
   rclcpp::Client<ariac_msgs::srv::PerformQualityCheck>::SharedPtr

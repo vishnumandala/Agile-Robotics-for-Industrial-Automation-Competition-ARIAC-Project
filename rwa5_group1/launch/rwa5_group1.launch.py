@@ -18,7 +18,7 @@ def launch_setup(context, *args, **kwargs):
         parameters=generate_parameters(),
     )
     ariac_start_cpp = TimerAction(
-            period=10.0,
+            period=5.0,
             actions=[
                 Node(
                 package='rwa5_group1',
@@ -28,9 +28,9 @@ def launch_setup(context, *args, **kwargs):
             ),
             ]
         )
-    order_py =  Node(
+    ariac_python_py =  Node(
             package='rwa5_group1',
-            executable='order_management.py',
+            executable='ariac_python_node.py',
             name='OrderManagement',
             output='screen'
             )
@@ -69,7 +69,7 @@ def launch_setup(context, *args, **kwargs):
     nodes_to_start = [
         moveit_cpp,
         ariac_start_cpp,
-        order_py
+        ariac_python_py
         # moveit_python
         # rviz_node,
         # moveit
