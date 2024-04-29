@@ -11,7 +11,7 @@ This repo is to collaborate with teammates to accomplish assignment goals.
 ## Instructions
 
 
-- Clone the package to the ariac workspace / copy the folder rwa4_group1 into ariac_ws
+- Clone the package to the ariac workspace / copy the folder rwa5_group1 into ariac_ws. Also make sure robot_commander_msgs folder is present with rwa5_group1 in workspace src folder
 - Add the `rwa5_spring2024.yaml` file to your `ariac_gazebo` package in `config/trails/`
 - Build the workspace and source using following commands
 ```bash
