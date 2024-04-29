@@ -260,6 +260,7 @@ class OrderManagement(Node):
         self._locked_agv = False
         self._agv_moved_warehouse = False
         self._submitted_order = False
+        self._competition_ended_flag = False
 
 
         self._high_priority_orders = []
@@ -267,7 +268,7 @@ class OrderManagement(Node):
         self._paused_orders = []
         self._start_process_order = False
         self.current_order_is = None
-        self._order_announcements_count = -1
+        self._order_announcements_count = 0
         self._order_submitted_count = 0
 
 
@@ -332,7 +333,7 @@ class OrderManagement(Node):
                         if(ord_to_process._order_completed_flag):
                             self._normal_orders.pop(0)
                             self._order_submitted_count += 1
-                    elif (self._order_submitted_count == self._order_announcements_count+1):
+                    elif (self._order_submitted_count == self._order_announcements_count and self._competition_ended_flag):
                         self.get_logger().info(f"Ending the Process order thread!!!")
                         break
 
@@ -352,7 +353,8 @@ class OrderManagement(Node):
         # Check if the competition has started
         if msg.competition_state == CompetitionState.STARTED:
             self._start_process_order = True
-            
+        if msg.competition_state == CompetitionState.ENDED:
+            self._competition_ended_flag = True
         # Check if the competition has ended and set the flag 
         if msg.competition_state == CompetitionState.ORDER_ANNOUNCEMENTS_DONE:
             if (self._end_condition_thread is None or not self._end_condition_thread.is_alive()):
@@ -747,6 +749,14 @@ class OrderManagement(Node):
             ############## 2.7. Update Tray Pick Status ##############
             order._tray_pick_status[tray_id]["status"] =  True
             
+            ############## 2.8. Lock Tray ##############
+            self._lock_tray(agv_id)
+            agv_lock_status_temp = self._locked_agv
+            while not agv_lock_status_temp :
+                agv_lock_status_temp = self._locked_agv
+            self._locked_agv = False
+
+
             if self._check_priority_flag():
                 self.get_logger().info("Order priority tray is placed on agv. So returning")
                 return 
@@ -758,7 +768,7 @@ class OrderManagement(Node):
             return 
         
         ############################## 3. Pick Part from Bin and Place on Tray ########################################
-
+        
         for key, v in order._parts_status_tray.items():            
             # self.get_logger().info("Python Node : Robot Moved to Home")
             if(v["part_status"] == False):
@@ -775,9 +785,9 @@ class OrderManagement(Node):
                 part_pose.position.y = part_pose_curr[1]
                 part_pose.position.z = part_pose_curr[2]
                 part_pose.orientation.x = part_pose_curr_orient[0]
-                part_pose.orientation.y = part_pose_curr_orient[0]
-                part_pose.orientation.z = part_pose_curr_orient[0]
-                part_pose.orientation.w = part_pose_curr_orient[0]
+                part_pose.orientation.y = part_pose_curr_orient[1]
+                part_pose.orientation.z = part_pose_curr_orient[2]
+                part_pose.orientation.w = part_pose_curr_orient[3]
 
                 ############## 3.1. Move Robot to Home ##############
                 # self._move_robot_home()
@@ -788,7 +798,7 @@ class OrderManagement(Node):
                 # self.get_logger().info("Python Node : Robot Moved to Home")
 
                 ############## 3.2. Pick Part from Bin ##############
-                # time.sleep(3)
+                time.sleep(1)
                 self._robot_pick_part_from_bin(part_details, part_pose, part_bin_side)
                 robot_picked_part_bin_temp = self._picked_part_from_bin
                 while not robot_picked_part_bin_temp :
@@ -797,7 +807,7 @@ class OrderManagement(Node):
                 # self.get_logger().info("Python Node : Part Picked From Bin")
 
                 ############## 3.3. Place Part on Tray ##############
-                # time.sleep(3)
+                time.sleep(3)
                 self._robot_place_part_on_tray(agv_id,part_quadrant)
                 robot_placed_part_tray_temp = self._placed_part_on_tray
                 while not robot_placed_part_tray_temp :
@@ -823,13 +833,7 @@ class OrderManagement(Node):
         if(order_completed_flag):
             order._order_completed_flag = True
             
-            ############## 5.1. Lock Tray ##############
-            self._lock_tray(agv_id)
-            agv_lock_status_temp = self._locked_agv
-            while not agv_lock_status_temp :
-                agv_lock_status_temp = self._locked_agv
-            self._locked_agv = False
-            
+                        
             ############## 5.2. Move AGV to Shipping Station ##############
             self._move_agv(agv_id, order._order_task.destination)
             move_agv_status_temp = self._agv_moved_warehouse
@@ -962,7 +966,7 @@ class OrderManagement(Node):
         Periodically check if all orders are processed and AGVs are in warehouse, then end competition.
         """
         while not self.competition_ended and rclpy.ok():
-            if (all(status == "WAREHOUSE" for status in self._agv_statuses.values()) and self._order_submitted_count == self._order_announcements_count+1):
+            if (all(status == "WAREHOUSE" for status in self._agv_statuses.values()) and self._order_submitted_count == self._order_announcements_count):
                 self.get_logger().info("All orders processed and AGVs at destination. Preparing to end competition.")
                 self._end_competition()
                 self._order_processing_thread.join()

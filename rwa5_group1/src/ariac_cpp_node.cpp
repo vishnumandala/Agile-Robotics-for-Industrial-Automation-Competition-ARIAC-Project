@@ -686,7 +686,7 @@ void FloorRobot::wait_for_attach_completion(double timeout)
                          "Waiting for gripper attach");
 
     waypoints.clear();
-    starting_pose.position.z -= 0.0008; // This changed by us
+    starting_pose.position.z -= 0.0005; // This changed by us
     waypoints.push_back(starting_pose);
 
     move_through_waypoints(waypoints, 0.1, 0.1);  
@@ -972,7 +972,7 @@ bool FloorRobot::place_part_in_tray(int agv_num, int quadrant)
   waypoints.push_back(Utils::build_pose(
       part_drop_pose.position.x, part_drop_pose.position.y,
       part_drop_pose.position.z +
-          part_heights_[floor_robot_attached_part_.type] + drop_height_,
+          part_heights_[floor_robot_attached_part_.type] + drop_height_+0.009,
       set_robot_orientation(0)));
 
   move_through_waypoints(waypoints, 0.3, 0.3);
