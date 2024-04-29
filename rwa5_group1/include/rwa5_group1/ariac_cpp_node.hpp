@@ -1,21 +1,12 @@
-/*! \mainpage Main page for the floor robot demo
- *
- * \section Installation
- *
- * - cd ~/ariac_ws/src
- * - git clone https://github.com/zeidk/enpm663_summer2023.git -b lecture8
- * - cd ~/ariac_ws
- * - rosdep install --from-paths src -y -i --rosdistro galactic
- * - colcon build
- */
-
 /*!
  *  \brief     Class for the floor robot.
- *  \details   The floor robot is capable of completing kitting tasks.
+ *  \details   The initialization class and contains modifcations required for our moveit capabilties on top of the baseline code provided by Zeid Kootbally
  *  \author    Zeid Kootbally
- *  \author    John Doe (add your teammate's name here)
+ *  \author    Ankur Mahesh Chavan (achavan1@umd.edu),Datta Lohith Gannavarapu (gdatta@umd.edu),
+ *             Shail Kiritkumar Shah (sshah115@umd.edu) Vinay Krishna Bukka (vinay06@umd.edu),
+ *             Vishnu Mandala (vishnum@umd.edu)
  *  \version   0.1
- *  \date      July 2023
+ *  \date      04/29/2024
  *  \warning   Improper use can crash your application
  *  \copyright GNU Public License.
  */

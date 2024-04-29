@@ -1,17 +1,6 @@
-# rwa4_ariac
+# rwa5_ariac
 This repo is to collaborate with teammates to accomplish assignment goals.
 
-Task 3 - C++
-
-Task 4 - Python
-
-Task 5 - Python
-
-Task 6 - Python
-
-Task 7 - Python
-
-Task 8 - Python
 ## Team Members:
 
 1. Ankur Mahesh Chavan 
@@ -23,7 +12,7 @@ Task 8 - Python
 
 
 - Clone the package to the ariac workspace / copy the folder rwa4_group1 into ariac_ws
-- Add the `rwa4_spring2024.yaml` file to your `ariac_gazebo` package in `config/trails/`
+- Add the `rwa5_spring2024.yaml` file to your `ariac_gazebo` package in `config/trails/`
 - Build the workspace and source using following commands
 ```bash
     # Install YOLO library
@@ -56,4 +45,4 @@ Task 8 - Python
 `Note`: Run the Command in terminal two after the statement `"You can now start the competetion!"` in Terminal 1.
 
 ## Results: 
-You can see the ARIAC environment performing the task sequentially and the terminal 2 displaying important updates
+You can see the ARIAC environment performing the task sequentially and the terminal 1 and terminal 3 displaying important updates

@@ -1,3 +1,15 @@
+/**
+ * @file utils.hpp
+ * @author Zeid Kootbally, Ankur Mahesh Chavan (achavan1@umd.edu),Datta Lohith Gannavarapu (gdatta@umd.edu),
+           Shail Kiritkumar Shah (sshah115@umd.edu) Vinay Krishna Bukka (vinay06@umd.edu),
+           Vishnu Mandala (vishnum@umd.edu)
+ * @brief This node contains the util functions to compute pose in world frames and getting poses in different frames
+ * @version 0.1
+ * @date 2024-04-29
+ * 
+ * @copyright Copyright (c) 2024
+ * @credit : Professor Zeid Kootbally for the baseline code for moveit functions
+ */
 #pragma once
 
 #include <cmath>

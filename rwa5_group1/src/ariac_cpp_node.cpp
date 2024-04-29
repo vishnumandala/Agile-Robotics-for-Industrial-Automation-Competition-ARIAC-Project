@@ -1,3 +1,15 @@
+/**
+ * @file ariac_cpp_node.cpp
+ * @author Zeid Kootbally, Ankur Mahesh Chavan (achavan1@umd.edu),Datta Lohith Gannavarapu (gdatta@umd.edu),
+           Shail Kiritkumar Shah (sshah115@umd.edu) Vinay Krishna Bukka (vinay06@umd.edu),
+           Vishnu Mandala (vishnum@umd.edu)
+ * @brief This node contains the moveit functions required for executing pick and place tasks for kitting when triggered from Python Node using Service calls
+ * @version 0.1
+ * @date 2024-04-29
+ * 
+ * @copyright Copyright (c) 2024
+ * @credit : Professor Zeid Kootbally for the baseline code for moveit functions
+ */
 #include "rwa5_group1/ariac_cpp_node.hpp"
 #include "rwa5_group1/utils.hpp"
 
