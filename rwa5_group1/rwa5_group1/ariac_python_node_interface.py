@@ -318,8 +318,8 @@ class OrderManagement(Node):
                 while True:
                     h_len = len(self._high_priority_orders)
                     n_len = len(self._normal_orders)
-                    self.get_logger().info(f"High priority {self._high_priority_orders} ")
-                    self.get_logger().info(f"Normal Priority {self._normal_orders} ")
+                    # self.get_logger().info(f"High priority {self._high_priority_orders} ")
+                    # self.get_logger().info(f"Normal Priority {self._normal_orders} ")
                     if(h_len > 0):
                         self.current_order_is = "high"
                         ord_to_process = self._high_priority_orders[0]
@@ -935,7 +935,7 @@ class OrderManagement(Node):
         current_agv_velocity = self._agv_velocities.get(agv_id)
 
         while (current_status != "WAREHOUSE" or current_agv_velocity > 0.0):
-            self.get_logger().info(f"In status{current_status},{current_agv_velocity}")
+            self.get_logger().info(f"In status {current_status},{current_agv_velocity}")
             current_status = self._agv_statuses.get(agv_id)
             current_agv_velocity = self._agv_velocities.get(agv_id)
 
