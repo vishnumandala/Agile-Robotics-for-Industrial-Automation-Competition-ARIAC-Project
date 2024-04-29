@@ -267,7 +267,7 @@ class OrderManagement(Node):
         self._paused_orders = []
         self._start_process_order = False
         self.current_order_is = None
-        self._order_announcements_count = 0
+        self._order_announcements_count = -1
         self._order_submitted_count = 0
 
 
@@ -332,7 +332,7 @@ class OrderManagement(Node):
                         if(ord_to_process._order_completed_flag):
                             self._normal_orders.pop(0)
                             self._order_submitted_count += 1
-                    elif (self._order_submitted_count == self._order_announcements_count):
+                    elif (self._order_submitted_count == self._order_announcements_count+1):
                         self.get_logger().info(f"Ending the Process order thread!!!")
                         break
 
@@ -962,7 +962,7 @@ class OrderManagement(Node):
         Periodically check if all orders are processed and AGVs are in warehouse, then end competition.
         """
         while not self.competition_ended and rclpy.ok():
-            if (all(status == "WAREHOUSE" for status in self._agv_statuses.values()) and self._order_submitted_count == self._order_announcements_count):
+            if (all(status == "WAREHOUSE" for status in self._agv_statuses.values()) and self._order_submitted_count == self._order_announcements_count+1):
                 self.get_logger().info("All orders processed and AGVs at destination. Preparing to end competition.")
                 self._end_competition()
                 self._order_processing_thread.join()
