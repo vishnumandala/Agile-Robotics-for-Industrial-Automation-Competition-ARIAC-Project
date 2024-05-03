@@ -18,7 +18,7 @@ def launch_setup(context, *args, **kwargs):
         parameters=generate_parameters(),
     )
     ariac_start_cpp = TimerAction(
-            period=5.0,
+            period=10.0,
             actions=[
                 Node(
                 package='rwa5_group1',
@@ -68,8 +68,8 @@ def launch_setup(context, *args, **kwargs):
 
     nodes_to_start = [
         moveit_cpp,
+        ariac_python_py,
         ariac_start_cpp,
-        ariac_python_py
         # moveit_python
         # rviz_node,
         # moveit
