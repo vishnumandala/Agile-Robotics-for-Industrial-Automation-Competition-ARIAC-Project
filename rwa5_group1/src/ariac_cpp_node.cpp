@@ -976,16 +976,32 @@ bool FloorRobot::place_part_in_tray(int agv_num, int quadrant)
   auto part_drop_pose = Utils::multiply_poses(agv_tray_pose, part_drop_offset);
 
   std::vector<geometry_msgs::msg::Pose> waypoints;
-
+  bool orange_pump_flag;
   waypoints.push_back(Utils::build_pose(
       part_drop_pose.position.x, part_drop_pose.position.y,
       part_drop_pose.position.z + 0.3, set_robot_orientation(0)));
+  
+  if(floor_robot_attached_part_.type == ariac_msgs::msg::Part::PUMP){
+    orange_pump_flag = true ;
+  }
+  else{
+    orange_pump_flag = false;
+  }
 
-  waypoints.push_back(Utils::build_pose(
+  if(orange_pump_flag){
+    waypoints.push_back(Utils::build_pose(
+      part_drop_pose.position.x, part_drop_pose.position.y,
+      part_drop_pose.position.z +
+          part_heights_[floor_robot_attached_part_.type] + drop_height_+0.011,
+      set_robot_orientation(0)));
+  }else{  
+    waypoints.push_back(Utils::build_pose(
       part_drop_pose.position.x, part_drop_pose.position.y,
       part_drop_pose.position.z +
           part_heights_[floor_robot_attached_part_.type] + drop_height_+0.009,
       set_robot_orientation(0)));
+      }
+
 
   move_through_waypoints(waypoints, 0.3, 0.3);
 
