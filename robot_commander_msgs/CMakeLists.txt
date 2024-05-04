@@ -20,6 +20,7 @@ set(srv_files
   "srv/ExitToolChanger.srv"
   "srv/PickPartBin.srv"
   "srv/PlacePartTray.srv"
+  "srv/ReleasePartOnTray.srv"
 )
 
 

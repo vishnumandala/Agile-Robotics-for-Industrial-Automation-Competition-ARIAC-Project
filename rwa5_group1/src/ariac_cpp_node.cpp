@@ -140,6 +140,16 @@ FloorRobot::FloorRobot()
           "/commander/place_part_tray",
           std::bind(&FloorRobot::place_part_tray_srv_cb, this,
                     std::placeholders::_1, std::placeholders::_2));
+  release_part_on_tray_srv =
+      create_service<robot_commander_msgs::srv::ReleasePartOnTray>(
+          "/commander/release_part_on_tray",
+          std::bind(&FloorRobot::release_part_on_tray_srv_cb, this,
+                    std::placeholders::_1, std::placeholders::_2));
+  // service to move the robot to home position
+  drop_part_in_trash_srv_ = create_service<std_srvs::srv::Trigger>(
+      "/commander/drop_part_in_trash",
+      std::bind(&FloorRobot::drop_part_in_trash_srv_cb, this,
+                std::placeholders::_1, std::placeholders::_2));
   // add models to the planning scene
   add_models_to_planning_scene();
   executor_->add_node(node_);
@@ -952,11 +962,7 @@ void FloorRobot::place_part_tray_srv_cb(
 //=============================================//
 bool FloorRobot::place_part_in_tray(int agv_num, int quadrant)
 {
-  if (!floor_gripper_state_.attached)
-  {
-    RCLCPP_ERROR(get_logger(), "No part attached");
-    return false;
-  }
+  
 
   // Move to agv
   floor_robot_->setJointValueTarget(
@@ -979,8 +985,7 @@ bool FloorRobot::place_part_in_tray(int agv_num, int quadrant)
   bool orange_pump_flag;
   waypoints.push_back(Utils::build_pose(
       part_drop_pose.position.x, part_drop_pose.position.y,
-      part_drop_pose.position.z + 0.3, set_robot_orientation(0)));
-  
+      part_drop_pose.position.z + 0.3, set_robot_orientation(0))); 
   if(floor_robot_attached_part_.type == ariac_msgs::msg::Part::PUMP){
     orange_pump_flag = true ;
   }
@@ -1004,23 +1009,103 @@ bool FloorRobot::place_part_in_tray(int agv_num, int quadrant)
 
 
   move_through_waypoints(waypoints, 0.3, 0.3);
+  if (!floor_gripper_state_.attached)
+  {
+    RCLCPP_ERROR(get_logger(), "No part attached");
+    return false;
+  }
 
+  return true;
+}
+
+
+void FloorRobot::release_part_on_tray_srv_cb(
+    robot_commander_msgs::srv::ReleasePartOnTray::Request::SharedPtr req,
+    robot_commander_msgs::srv::ReleasePartOnTray::Response::SharedPtr res)
+{
+  RCLCPP_INFO(get_logger(), "Received request to release part on tray");
+  auto agv_id = req->agv_number;
+  auto quadrant = req->quadrant;
+
+  if (drop_part_on_tray(agv_id, quadrant))
+  {
+    RCLCPP_INFO(get_logger(), "Successfully Released Part on Tray");
+    res->success = true;
+    res->message = "Dropped Part on Tray";
+  }
+  else
+  {
+    res->success = false;
+    res->message = "Unable to Drop Part on Tray";
+  }
+}
+
+bool FloorRobot::drop_part_on_tray(int agv_num, int quadrant){
+  
   // Drop part in quadrant
   set_gripper_state(false);
+  // Determine target pose for part based on agv_tray pose
+  auto agv_tray_pose =
+      get_pose_in_world_frame("agv" + std::to_string(agv_num) + "_tray");
+
+  auto part_drop_offset = Utils::build_pose(quad_offsets_[quadrant].first,
+                                            quad_offsets_[quadrant].second, 0.0,
+                                            geometry_msgs::msg::Quaternion());
+
+  auto part_drop_pose = Utils::multiply_poses(agv_tray_pose, part_drop_offset);
 
   std::string part_name = part_colors_[floor_robot_attached_part_.color] + "_" +
                           part_types_[floor_robot_attached_part_.type];
   floor_robot_->detachObject(part_name);
-
+  std::vector<geometry_msgs::msg::Pose> waypoints;
   waypoints.clear();
   waypoints.push_back(Utils::build_pose(
       part_drop_pose.position.x, part_drop_pose.position.y,
       part_drop_pose.position.z + 0.3, set_robot_orientation(0)));
 
   move_through_waypoints(waypoints, 0.2, 0.1);
-
   return true;
+
 }
 
 
 
+void FloorRobot::drop_part_in_trash_srv_cb(
+    std_srvs::srv::Trigger::Request::SharedPtr req,
+    std_srvs::srv::Trigger::Response::SharedPtr res)
+{
+  RCLCPP_INFO(get_logger(), "Received request to drop part in trash");
+  (void)req; // remove unused parameter warning
+
+  if (drop_part_in_trash())
+  {
+    res->success = true;
+    res->message = "Part dropped in Trash";
+  }
+  else
+  {
+    res->success = false;
+    res->message = "Unable to drop part in trash";
+  }
+}
+bool FloorRobot::drop_part_in_trash(){
+  
+  // Move to agv
+  floor_robot_->setJointValueTarget(
+      "linear_actuator_joint",
+      rail_positions_["disposal_bin"]);
+  floor_robot_->setJointValueTarget("floor_shoulder_pan_joint", 0);
+  move_to_target();
+  std::vector<geometry_msgs::msg::Pose> waypoints;
+  // Drop part in quadrant
+  set_gripper_state(false);
+  // floor_robot_->detachObject(part_name);
+  
+  // waypoints.clear();
+  // waypoints.push_back(Utils::build_pose(
+  //     -2.20, 0,0.5, set_robot_orientation(0)));
+
+  // move_through_waypoints(waypoints, 0.2, 0.1);
+  return true;
+
+}

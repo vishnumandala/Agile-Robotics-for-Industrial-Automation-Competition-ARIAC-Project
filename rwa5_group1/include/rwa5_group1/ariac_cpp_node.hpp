@@ -48,6 +48,7 @@
 #include <robot_commander_msgs/srv/move_tray_to_agv.hpp>
 #include <robot_commander_msgs/srv/pick_part_bin.hpp>
 #include <robot_commander_msgs/srv/place_part_tray.hpp>
+#include <robot_commander_msgs/srv/release_part_on_tray.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -133,10 +134,14 @@ class FloorRobot : public rclcpp::Node {
   //! Service to pick part from bin
   rclcpp::Service<robot_commander_msgs::srv::PickPartBin>::SharedPtr 
         pick_part_bin_srv_;
-//! Service to place part on tray
+  //! Service to place part on tray
   rclcpp::Service<robot_commander_msgs::srv::PlacePartTray>::SharedPtr 
         place_part_tray_srv_;
-
+ //! Service to place part on tray
+  rclcpp::Service<robot_commander_msgs::srv::ReleasePartOnTray>::SharedPtr 
+        release_part_on_tray_srv;
+   //! Service to drop part in trash
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr drop_part_in_trash_srv_;
 
   /**
    * @brief Callback function for the service /commander/move_robot_home
@@ -228,6 +233,13 @@ class FloorRobot : public rclcpp::Node {
   void place_part_tray_srv_cb(
     robot_commander_msgs::srv::PlacePartTray::Request::SharedPtr req,
     robot_commander_msgs::srv::PlacePartTray::Response::SharedPtr res);
+
+  void release_part_on_tray_srv_cb(
+    robot_commander_msgs::srv::ReleasePartOnTray::Request::SharedPtr req,
+    robot_commander_msgs::srv::ReleasePartOnTray::Response::SharedPtr res);
+  void drop_part_in_trash_srv_cb(
+      std_srvs::srv::Trigger::Request::SharedPtr req_,
+      std_srvs::srv::Trigger::Response::SharedPtr res_);
 
 
   /**
@@ -370,7 +382,10 @@ class FloorRobot : public rclcpp::Node {
    */
   bool place_part_in_tray(int agv_num, int quadrant);
   //-----------------------------//
+  
+  bool drop_part_on_tray(int agv_num, int quadrant);
 
+  bool drop_part_in_trash();
   /**
    * @brief Move the floor robot to the target pose
    *
@@ -571,7 +586,7 @@ class FloorRobot : public rclcpp::Node {
   //! Position of the linear actuator for different configurations
   std::map<std::string, double> rail_positions_ = {
       {"agv1", -4.5}, {"agv2", -1.2},   {"agv3", 1.2},
-      {"agv4", 4.5},  {"left_bins", 3}, {"right_bins", -3}};
+      {"agv4", 4.5},  {"left_bins", 3}, {"right_bins", -3},{"disposal_bin", 0.65}};
   //! Joint value targets for kit tray station 1
   std::map<std::string, double> floor_kts1_js_ = {
       {"linear_actuator_joint", 4.0},       {"floor_shoulder_pan_joint", 1.57},
