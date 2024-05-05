@@ -1098,14 +1098,20 @@ bool FloorRobot::drop_part_in_trash(){
   move_to_target();
   std::vector<geometry_msgs::msg::Pose> waypoints;
   // Drop part in quadrant
-  set_gripper_state(false);
-  // floor_robot_->detachObject(part_name);
-  
-  // waypoints.clear();
-  // waypoints.push_back(Utils::build_pose(
-  //     -2.20, 0,0.5, set_robot_orientation(0)));
+  waypoints.clear();
+  waypoints.push_back(Utils::build_pose(
+      -2.20, 0,1.0, set_robot_orientation(0)));
 
-  // move_through_waypoints(waypoints, 0.2, 0.1);
+  move_through_waypoints(waypoints, 0.2, 0.1);
+  set_gripper_state(false);
+  std::string part_name = part_colors_[floor_robot_attached_part_.color] + "_" +
+                          part_types_[floor_robot_attached_part_.type];
+  floor_robot_->detachObject(part_name);
+  waypoints.clear();
+  waypoints.push_back(Utils::build_pose(
+      -2.20, 0,1.2, set_robot_orientation(0)));
+
+  move_through_waypoints(waypoints, 0.2, 0.1);
   return true;
 
 }

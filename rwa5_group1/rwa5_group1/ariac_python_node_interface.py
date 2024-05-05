@@ -836,12 +836,20 @@ class OrderManagement(Node):
                     self._release_part_on_tray(agv_id, part_quadrant)
                     while not robot_released_part_temp:
                         robot_released_part_temp = self._released_part_on_tray
+                    self._released_part_on_tray = True
                 else:
                     part_dropped_trash_temp = self._part_dropped_trash
                     self._drop_part_in_trash()
                     while not part_dropped_trash_temp:
                         part_dropped_trash_temp = self._part_dropped_trash
-                self._released_part_on_tray = True
+                    self._part_dropped_trash = True
+                    # self._move_robot_home()
+                    # robot_moved_home_status_temp = self._moved_robot_home
+                    # while not robot_moved_home_status_temp :
+                    #     robot_moved_home_status_temp = self._moved_robot_home
+                    # self._moved_robot_home = False
+                    self.get_logger().info("Python Node : Robot Moved to Home")
+                
                 v["part_status"] = True     # Mark the part as placed on tray
                 
                 if self._check_priority_flag():
