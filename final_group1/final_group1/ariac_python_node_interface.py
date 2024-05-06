@@ -856,21 +856,21 @@ class OrderManagement(Node):
                 
         ############## 3.4. Perform Quality Check on placed parts ##############
                 
-        self._quality_check(order._order_id)
-        if len(self._faults) > 0:
-            self.get_logger().info(f"Removing Faulty Parts")
-            for fault in self._faults:
-                agv_dict = self._Agvs_Dictionary[agv_id]
-                part = agv_dict[fault]["part"]
-                type = self._Parts_Dictionary['types'][part.type]
-                color = self._Parts_Dictionary['colors'][part.color]
-                self._robot_remove_faulty_part(agv_dict[fault]["pose"], agv_id)
+        # self._quality_check(order._order_id)
+        # if len(self._faults) > 0:
+        #     self.get_logger().info(f"Removing Faulty Parts")
+        #     for fault in self._faults:
+        #         agv_dict = self._Agvs_Dictionary[agv_id]
+        #         part = agv_dict[fault]["part"]
+        #         type = self._Parts_Dictionary['types'][part.type]
+        #         color = self._Parts_Dictionary['colors'][part.color]
+        #         self._robot_remove_faulty_part(agv_dict[fault]["pose"], agv_id)
                 
-                order._parts_status_tray[(type, color, fault)]["part_status"] = False
+        #         order._parts_status_tray[(type, color, fault)]["part_status"] = False
 
-            self.get_logger().info(f"Faulty Parts Removed. Re-Processing Order")
-            self._pick_place_parts_on_tray(order, agv_id)
-            self._faults = []
+        #     self.get_logger().info(f"Faulty Parts Removed. Re-Processing Order")
+        #     self._pick_place_parts_on_tray(order, agv_id)
+        #     self._faults = []
             
         ############################## 4. Check Order Completion ########################################
         
@@ -960,87 +960,97 @@ class OrderManagement(Node):
             pose (Pose): Pose of the part
             side (str): Side of the bin
         """
-        for v in order._parts_status_tray.values():            
-            # self.get_logger().info("Python Node : Robot Moved to Home")
-            if(v["part_status"] == False):
-                part_details = Part()
-                part_details.color = self._part_color_mapping[v["part_color"]]
-                part_details.type = self._part_type_mapping[v["part_type"]]
-                part_pose_curr = v["pose"]
-                part_pose_curr_orient = v["orientation"]
-                part_bin_side = v["bin"]
-                part_quadrant = self._quadrant_mapping[v["part_quadrant"]]
-                
-                part_pose = Pose()
-                part_pose.position.x = part_pose_curr[0]
-                part_pose.position.y = part_pose_curr[1]
-                part_pose.position.z = part_pose_curr[2]
-                part_pose.orientation.x = part_pose_curr_orient[0]
-                part_pose.orientation.y = part_pose_curr_orient[1]
-                part_pose.orientation.z = part_pose_curr_orient[2]
-                part_pose.orientation.w = part_pose_curr_orient[3]
-
-                ############## 3.1. Move Robot to Home ##############
-                # self._move_robot_home()
-                # robot_moved_home_status_temp = self._moved_robot_home
-                # while not robot_moved_home_status_temp :
-                #     robot_moved_home_status_temp = self._moved_robot_home
-                # self._moved_robot_home = False
+        while True:
+            for v in order._parts_status_tray.values():            
                 # self.get_logger().info("Python Node : Robot Moved to Home")
+                if(v["part_status"] == False):
+                    part_details = Part()
+                    part_details.color = self._part_color_mapping[v["part_color"]]
+                    part_details.type = self._part_type_mapping[v["part_type"]]
+                    part_pose_curr = v["pose"]
+                    part_pose_curr_orient = v["orientation"]
+                    part_bin_side = v["bin"]
+                    part_quadrant = self._quadrant_mapping[v["part_quadrant"]]
+                    
+                    part_pose = Pose()
+                    part_pose.position.x = part_pose_curr[0]
+                    part_pose.position.y = part_pose_curr[1]
+                    part_pose.position.z = part_pose_curr[2]
+                    part_pose.orientation.x = part_pose_curr_orient[0]
+                    part_pose.orientation.y = part_pose_curr_orient[1]
+                    part_pose.orientation.z = part_pose_curr_orient[2]
+                    part_pose.orientation.w = part_pose_curr_orient[3]
 
-                ############## 3.2. Pick Part from Bin ##############
-                time.sleep(1)
-                self._robot_pick_part_from_bin(part_details, part_pose, part_bin_side)
-                robot_picked_part_bin_temp = self._picked_part_from_bin
-                while not robot_picked_part_bin_temp :
-                    robot_picked_part_bin_temp = self._picked_part_from_bin
-                self._picked_part_from_bin = False
-                # self.get_logger().info("Python Node : Part Picked From Bin")
-
-                ############## 3.3. Place Part on Tray ##############
-                time.sleep(3)
-                self._robot_place_part_on_tray(agv_id,part_quadrant)
-                robot_placed_part_tray_temp = self._placed_part_on_tray
-                fault_gripper_flag_temp = self._fault_gripper_flag
-                while not robot_placed_part_tray_temp or not fault_gripper_flag_temp :
-                    if (fault_gripper_flag_temp):
-                        ######## Perform Faulty Gripper Challenger#######
-                        self.get_logger().info("Its a faulty gripper challenge now")
-                        break
-                    if robot_placed_part_tray_temp:
-                        self.get_logger().info("Part placed. So, continue")
-                        break
-                    fault_gripper_flag_temp = self._fault_gripper_flag
-                    robot_placed_part_tray_temp = self._placed_part_on_tray
-                self._placed_part_on_tray = False
-                self._fault_gripper_flag =  False
-                self.get_logger().info("Python Node : Part Placed on Tray")
-                a = 2
-                if(a==1):
-                    robot_released_part_temp = self._released_part_on_tray
-                    self._release_part_on_tray(agv_id, part_quadrant)
-                    while not robot_released_part_temp:
-                        robot_released_part_temp = self._released_part_on_tray
-                    self._released_part_on_tray = True
-                else:
-                    part_dropped_trash_temp = self._part_dropped_trash
-                    self._drop_part_in_trash()
-                    while not part_dropped_trash_temp:
-                        part_dropped_trash_temp = self._part_dropped_trash
-                    self._part_dropped_trash = True
+                    ############## 3.1. Move Robot to Home ##############
                     # self._move_robot_home()
                     # robot_moved_home_status_temp = self._moved_robot_home
                     # while not robot_moved_home_status_temp :
                     #     robot_moved_home_status_temp = self._moved_robot_home
                     # self._moved_robot_home = False
-                    self.get_logger().info("Python Node : Robot Moved to Home")
-                
-                v["part_status"] = True     # Mark the part as placed on tray
-                
-                if self._check_priority_flag():
-                    self.get_logger().info("Order priority received after a part is placed. So returning")
-                    return 
+                    # self.get_logger().info("Python Node : Robot Moved to Home")
 
+                    ############## 3.2. Pick Part from Bin ##############
+                    time.sleep(1)
+                    self._robot_pick_part_from_bin(part_details, part_pose, part_bin_side)
+                    robot_picked_part_bin_temp = self._picked_part_from_bin
+                    while not robot_picked_part_bin_temp :
+                        robot_picked_part_bin_temp = self._picked_part_from_bin
+                    self._picked_part_from_bin = False
+                    # self.get_logger().info("Python Node : Part Picked From Bin")
+
+                    ############## 3.3. Place Part on Tray ##############
+                    time.sleep(3)
+                    self._robot_place_part_on_tray(agv_id,part_quadrant)
+                    robot_placed_part_tray_temp = self._placed_part_on_tray
+                    fault_gripper_flag_temp = self._fault_gripper_flag
+                    while not robot_placed_part_tray_temp or not fault_gripper_flag_temp :
+                        if (fault_gripper_flag_temp):
+                            ######## Perform Faulty Gripper Challenger#######
+                            self.get_logger().info("Its a faulty gripper challenge now")
+                            break
+                        if robot_placed_part_tray_temp:
+                            self.get_logger().info("Part placed. So, continue")
+                            break
+                        fault_gripper_flag_temp = self._fault_gripper_flag
+                        robot_placed_part_tray_temp = self._placed_part_on_tray
+                    self._placed_part_on_tray = False
+                    self._fault_gripper_flag =  False
+                    self.get_logger().info("Python Node : Part Placed on Tray")
+                    a = 2
+                    if(a==1):
+                        robot_released_part_temp = self._released_part_on_tray
+                        self._release_part_on_tray(agv_id, part_quadrant)
+                        while not robot_released_part_temp:
+                            robot_released_part_temp = self._released_part_on_tray
+                        self._released_part_on_tray = True
+                    else:
+                        part_dropped_trash_temp = self._part_dropped_trash
+                        self._drop_part_in_trash()
+                        while not part_dropped_trash_temp:
+                            part_dropped_trash_temp = self._part_dropped_trash
+                        self._part_dropped_trash = True
+                        # self._move_robot_home()
+                        # robot_moved_home_status_temp = self._moved_robot_home
+                        # while not robot_moved_home_status_temp :
+                        #     robot_moved_home_status_temp = self._moved_robot_home
+                        # self._moved_robot_home = False
+                        self.get_logger().info("Python Node : Robot Moved to Home")
+                    
+                    self._quality_check(order._order_id)
+                    if part_quadrant in self._faults:
+                        self.get_logger().info(f"Removing Faulty Part")
+                        self._drop_part_in_trash()
+                    else:
+                        self.get_logger().info(f"Part Placed on Tray")
+                        self._release_part_on_tray(agv_id, part_quadrant)
+                        v["part_status"] = True     # Mark the part as placed on tray
+                    
+                    if self._check_priority_flag():
+                        self.get_logger().info("Order priority received after a part is placed. So returning")
+                        return 
+
+            if all(v["part_status"] for v in order._parts_status_tray.values()):
+                break
     def _lock_tray(self, agv):
         """Function to lock the tray
 
