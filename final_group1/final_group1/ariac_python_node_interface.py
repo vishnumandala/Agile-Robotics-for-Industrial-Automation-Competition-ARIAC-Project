@@ -35,7 +35,8 @@ from robot_commander_msgs.srv import (
     MoveRobotToTray,
     MoveTrayToAGV,
     PickPartBin,
-    PlacePartTray
+    PlacePartTray,
+    ReleasePartOnTray
 )
 
 class Kitting:
@@ -219,6 +220,7 @@ class OrderManagement(Node):
         clients = {
             '_pick_part_bin_cli': (PickPartBin, "/commander/pick_part_bin"),
             '_place_part_tray_cli': (PlacePartTray, "/commander/place_part_tray"),
+            '_release_part_on_tray_cli' : (ReleasePartOnTray, "/commander/release_part_on_tray"),
             '_move_robot_home_cli': (Trigger, "/commander/move_robot_home"),
             '_move_robot_to_table_cli': (MoveRobotToTable, "/commander/move_robot_to_table"),
             '_move_robot_to_tray_cli': (MoveRobotToTray, "/commander/move_robot_to_tray"),
@@ -227,6 +229,7 @@ class OrderManagement(Node):
             '_exit_tool_changer_cli': (ExitToolChanger, "/commander/exit_tool_changer"),
             '_set_gripper_state_cli': (VacuumGripperControl, "/ariac/floor_robot_enable_gripper"),
             '_change_gripper_cli': (ChangeGripper, "/ariac/floor_robot_change_gripper"),
+            '_drop_part_in_trash_cli' : (Trigger, "/commander/drop_part_in_trash")
         }
 
         # Create the service clients
@@ -239,7 +242,9 @@ class OrderManagement(Node):
         self._picked_part_from_bin = False
         self._placing_part_on_tray = False
         self._placed_part_on_tray = False
-
+        self._released_part_on_tray = False
+        self._fault_gripper_flag = False
+        self._part_dropped_trash = False
         # Flags to track the completion of actions
         self._kit_completed = False
         self._competition_started = False
@@ -852,7 +857,7 @@ class OrderManagement(Node):
         ############## 3.4. Perform Quality Check on placed parts ##############
                 
         self._quality_check(order._order_id)
-        if len(self._faults) > 3:
+        if len(self._faults) > 0:
             self.get_logger().info(f"Removing Faulty Parts")
             for fault in self._faults:
                 agv_dict = self._Agvs_Dictionary[agv_id]
@@ -996,10 +1001,39 @@ class OrderManagement(Node):
                 time.sleep(3)
                 self._robot_place_part_on_tray(agv_id,part_quadrant)
                 robot_placed_part_tray_temp = self._placed_part_on_tray
-                while not robot_placed_part_tray_temp :
+                fault_gripper_flag_temp = self._fault_gripper_flag
+                while not robot_placed_part_tray_temp or not fault_gripper_flag_temp :
+                    if (fault_gripper_flag_temp):
+                        ######## Perform Faulty Gripper Challenger#######
+                        self.get_logger().info("Its a faulty gripper challenge now")
+                        break
+                    if robot_placed_part_tray_temp:
+                        self.get_logger().info("Part placed. So, continue")
+                        break
+                    fault_gripper_flag_temp = self._fault_gripper_flag
                     robot_placed_part_tray_temp = self._placed_part_on_tray
                 self._placed_part_on_tray = False
-                # self.get_logger().info("Python Node : Part Placed on Tray")
+                self._fault_gripper_flag =  False
+                self.get_logger().info("Python Node : Part Placed on Tray")
+                a = 2
+                if(a==1):
+                    robot_released_part_temp = self._released_part_on_tray
+                    self._release_part_on_tray(agv_id, part_quadrant)
+                    while not robot_released_part_temp:
+                        robot_released_part_temp = self._released_part_on_tray
+                    self._released_part_on_tray = True
+                else:
+                    part_dropped_trash_temp = self._part_dropped_trash
+                    self._drop_part_in_trash()
+                    while not part_dropped_trash_temp:
+                        part_dropped_trash_temp = self._part_dropped_trash
+                    self._part_dropped_trash = True
+                    # self._move_robot_home()
+                    # robot_moved_home_status_temp = self._moved_robot_home
+                    # while not robot_moved_home_status_temp :
+                    #     robot_moved_home_status_temp = self._moved_robot_home
+                    # self._moved_robot_home = False
+                    self.get_logger().info("Python Node : Robot Moved to Home")
                 
                 v["part_status"] = True     # Mark the part as placed on tray
                 
@@ -1505,36 +1539,66 @@ class OrderManagement(Node):
             self.get_logger().info(f"✅ {message}")
             self._placed_part_on_tray = True
         else:
+            self._fault_gripper_flag = True
             self.get_logger().fatal(f"💀 {message}")
 
-    def _robot_remove_faulty_part(self, part_pose):
+    def _release_part_on_tray(self, agv_number,quadrant):
         """
-        Make the robot remove faulty part
+        Release part on Tray
 
         Args:
-            part_pose: The pose of the part in world frame
+            agv_number: the agv on which part is placed
+            quadrant: the quadrant on tray where part is placed
         """
 
-        self.get_logger().info("👉 Removing Faulty Part")
-        self._removing_faulty_part = True
-        while not self._remove_faulty_part_cli.wait_for_service(timeout_sec=1.0):
+        self.get_logger().info("👉 Releasing Part on Tray")
+        self._releasing_part_on_tray = True
+        while not self._release_part_on_tray_cli.wait_for_service(timeout_sec=1.0):
             self.get_logger().info("Service not available, waiting...")
 
-        request = Trigger.Request()
-        request.pose = part_pose
-        future = self._remove_faulty_part_cli.call_async(request)
-        future.add_done_callback(self._remove_faulty_part_cli_cb)
-        
-    def _remove_faulty_part_cli_cb(self, future):
+        request = ReleasePartOnTray.Request()
+        request.agv_number = agv_number
+        request.quadrant = quadrant
+        future = self._release_part_on_tray_cli.call_async(request)
+        future.add_done_callback(self._release_part_on_tray_cli_cb)
+
+    def _release_part_on_tray_cli_cb(self, future):
         """
-        Client callback for the service /commander/remove_faulty_part
+        Client callback for the service /commander/release_part_on_tray
 
         Args:
             future (Future): A future object
         """
         message = future.result().message
         if future.result().success:
-            self.get_logger().info(f"✅ Removed Faulty Part")
-            self._removed_faulty_part = True
+            self.get_logger().info(f"✅ {message}")
+            self._released_part_on_tray = True
+        else:
+            self.get_logger().fatal(f"💀 {message}")
+
+    def _drop_part_in_trash(self):
+        """
+        Drop the Part in trash
+        """
+
+        self.get_logger().info("👉 Dropping part in Trash...")
+        while not self._drop_part_in_trash_cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info("Service not available, waiting...")
+
+        request = Trigger.Request()
+        future = self._drop_part_in_trash_cli.call_async(request)
+        future.add_done_callback(self._drop_part_in_trash_cb)
+
+    def _drop_part_in_trash_cb(self, future):
+        """
+        Client callback for the service /commander/drop_part_in_trash
+
+        Args:
+            future (Future): A future object
+        """
+        message = future.result().message
+        if future.result().success:
+            self.get_logger().info(f"✅ {message}")
+            self._part_dropped_trash = True
         else:
             self.get_logger().fatal(f"💀 {message}")
