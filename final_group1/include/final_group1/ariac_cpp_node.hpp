@@ -142,6 +142,8 @@ class FloorRobot : public rclcpp::Node {
         release_part_on_tray_srv;
    //! Service to drop part in trash
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr drop_part_in_trash_srv_;
+  //! Service to detach part from planning scene
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr detach_part_srv_;
 
   /**
    * @brief Callback function for the service /commander/move_robot_home
@@ -238,6 +240,9 @@ class FloorRobot : public rclcpp::Node {
     robot_commander_msgs::srv::ReleasePartOnTray::Request::SharedPtr req,
     robot_commander_msgs::srv::ReleasePartOnTray::Response::SharedPtr res);
   void drop_part_in_trash_srv_cb(
+      std_srvs::srv::Trigger::Request::SharedPtr req_,
+      std_srvs::srv::Trigger::Response::SharedPtr res_);
+  void detach_part_srv_cb(
       std_srvs::srv::Trigger::Request::SharedPtr req_,
       std_srvs::srv::Trigger::Response::SharedPtr res_);
 
@@ -386,6 +391,8 @@ class FloorRobot : public rclcpp::Node {
   bool drop_part_on_tray(int agv_num, int quadrant);
 
   bool drop_part_in_trash();
+
+  bool detach_part();
   /**
    * @brief Move the floor robot to the target pose
    *

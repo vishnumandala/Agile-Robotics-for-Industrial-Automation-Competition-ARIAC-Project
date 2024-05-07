@@ -228,7 +228,8 @@ class OrderManagement(Node):
             '_exit_tool_changer_cli': (ExitToolChanger, "/commander/exit_tool_changer"),
             '_set_gripper_state_cli': (VacuumGripperControl, "/ariac/floor_robot_enable_gripper"),
             '_change_gripper_cli': (ChangeGripper, "/ariac/floor_robot_change_gripper"),
-            '_drop_part_in_trash_cli' : (Trigger, "/commander/drop_part_in_trash")
+            '_drop_part_in_trash_cli' : (Trigger, "/commander/drop_part_in_trash"),
+            '_detach_part_planning_scene_cli' : (Trigger, "/commander/detach_part_planning_scene")
         }
 
         # Create the service clients
@@ -244,6 +245,7 @@ class OrderManagement(Node):
         self._released_part_on_tray = False
         self._fault_gripper_flag = False
         self._part_dropped_trash = False
+        self._part_detached = False
         # Flags to track the completion of actions
         self._kit_completed = False
         self._quality_check_completed = False
@@ -1070,11 +1072,11 @@ class OrderManagement(Node):
         Faulty Gripper Challenge
         """
         # Dropping to detach from gripper and planning scene
-        part_dropped_trash_temp = self._part_dropped_trash
-        self._drop_part_in_trash()
-        while not part_dropped_trash_temp:
-            part_dropped_trash_temp = self._part_dropped_trash
-        self._part_dropped_trash = True
+        part_detached_temp = self._part_detached
+        self._detach_part()
+        while not part_detached_temp:
+            part_detached_temp = self._part_detached
+        self._part_detached = True
         self._move_robot_home()
         robot_moved_home_status_temp = self._moved_robot_home
         while not robot_moved_home_status_temp :
@@ -1652,5 +1654,32 @@ class OrderManagement(Node):
         if future.result().success:
             self.get_logger().info(f"✅ {message}")
             self._part_dropped_trash = True
+        else:
+            self.get_logger().fatal(f"💀 {message}")
+
+    def _detach_part(self):
+        """
+        Detach the part from planning scene
+        """
+
+        self.get_logger().info("👉 Detaching part from planning scene...")
+        while not self._detach_part_planning_scene_cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info("Service not available, waiting...")
+
+        request = Trigger.Request()
+        future = self._detach_part_planning_scene_cli.call_async(request)
+        future.add_done_callback(self._detach_part_cb)
+
+    def _detach_part_cb(self, future):
+        """
+        Client callback for the service /commander/drop_part_in_trash
+
+        Args:
+            future (Future): A future object
+        """
+        message = future.result().message
+        if future.result().success:
+            self.get_logger().info(f"✅ {message}")
+            self._part_detached = True
         else:
             self.get_logger().fatal(f"💀 {message}")
