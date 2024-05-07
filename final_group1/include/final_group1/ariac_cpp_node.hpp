@@ -582,11 +582,11 @@ class FloorRobot : public rclcpp::Node {
   //! tray
   std::map<int, std::pair<double, double>> quad_offsets_ = {
       {ariac_msgs::msg::KittingPart::QUADRANT1,
-       std::pair<double, double>(-0.08, 0.12)},
+       std::pair<double, double>(-0.10, 0.12)},
       {ariac_msgs::msg::KittingPart::QUADRANT2,
        std::pair<double, double>(0.08, 0.12)},
       {ariac_msgs::msg::KittingPart::QUADRANT3,
-       std::pair<double, double>(-0.08, -0.12)},
+       std::pair<double, double>(-0.10, -0.12)},
       {ariac_msgs::msg::KittingPart::QUADRANT4,
        std::pair<double, double>(0.08, -0.12)},
   };
