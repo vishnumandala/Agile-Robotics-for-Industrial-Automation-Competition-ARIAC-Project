@@ -315,6 +315,7 @@ class OrderManagement(Node):
         Function to process the orders based on priority.
         """
         while False in self.tables_done.values() or False in self.bins_done.values():
+            self.get_logger().info(f"Still reading cameras!!!")
             pass
         else:
             if not self._competition_started:
@@ -322,8 +323,8 @@ class OrderManagement(Node):
                 while True:
                     h_len = len(self._high_priority_orders)
                     n_len = len(self._normal_orders)
-                    # self.get_logger().info(f"High priority {self._high_priority_orders} ")
-                    # self.get_logger().info(f"Normal Priority {self._normal_orders} ")
+                    self.get_logger().info(f"High priority {self._high_priority_orders} ")
+                    self.get_logger().info(f"Normal Priority {self._normal_orders} ")
                     if(h_len > 0):
                         self.current_order_is = "high"
                         ord_to_process = self._high_priority_orders[0]
@@ -340,6 +341,8 @@ class OrderManagement(Node):
                     elif (self._order_submitted_count == self._order_announcements_count and self._competition_ended_flag):
                         self.get_logger().info(f"Ending the Process order thread!!!")
                         break
+                    else:
+                        self.get_logger().info(f"Order count {self._order_announcements_count} , {self._order_submitted_count}")
 
     def _check_priority_flag(self):
         """
@@ -1077,12 +1080,12 @@ class OrderManagement(Node):
         while not part_detached_temp:
             part_detached_temp = self._part_detached
         self._part_detached = True
-        self._move_robot_home()
-        robot_moved_home_status_temp = self._moved_robot_home
-        while not robot_moved_home_status_temp :
-            robot_moved_home_status_temp = self._moved_robot_home
-        self._moved_robot_home = False
-        self.get_logger().info("Python Node : Robot Moved to Home")
+        # self._move_robot_home()
+        # robot_moved_home_status_temp = self._moved_robot_home
+        # while not robot_moved_home_status_temp :
+        #     robot_moved_home_status_temp = self._moved_robot_home
+        # self._moved_robot_home = False
+        # self.get_logger().info("Python Node : Robot Moved to Home")
         self.bins_done['Left'] = False
         self.bins_done['Right'] = False
         while not (self.bins_done['Left'] and self.bins_done['Right']):
