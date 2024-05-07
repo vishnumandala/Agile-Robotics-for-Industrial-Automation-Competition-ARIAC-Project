@@ -12,7 +12,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rclpy.callback_groups import ReentrantCallbackGroup
-from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, BasicLogicalCameraImage,AdvancedLogicalCameraImage,  VacuumGripperState, Part, QualityIssue
+from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, BasicLogicalCameraImage,AdvancedLogicalCameraImage,  VacuumGripperState, Part
 from ariac_msgs.srv import MoveAGV, SubmitOrder,ChangeGripper, VacuumGripperControl, PerformQualityCheck
 from std_srvs.srv import Trigger
 from queue import PriorityQueue
@@ -153,8 +153,7 @@ class OrderManagement(Node):
         sim_time = Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)
         self.set_parameters([sim_time])
 
-
-        self.pkg_share = FindPackageShare("rwa5_group1").find("rwa5_group1")
+        self.pkg_share = FindPackageShare("final_group1").find("final_group1")
         qos_policy = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=10)
         
         # Create callback groups
@@ -247,6 +246,7 @@ class OrderManagement(Node):
         self._part_dropped_trash = False
         # Flags to track the completion of actions
         self._kit_completed = False
+        self._quality_check_completed = False
         self._competition_started = False
         self._competition_state = None
         self._moved_robot_home = False
@@ -945,9 +945,10 @@ class OrderManagement(Node):
             quadrants.append(response.quadrant3)
             quadrants.append(response.quadrant4)
             for i in range(4):
-                if not quadrants[i].all_passed:
+                if not quadrants[i].all_passed and quadrants[i].faulty_part:
                     self._faults.append(i+1)
-            self.get_logger().info(f"Faulty Quadrants: {self._faults}")
+            self.get_logger().info(f"Faulty Quadrants: {self._faults}") if len(self._faults) > 0 else self.get_logger().info("No Faulty Quadrants")
+            self._quality_check_completed = True
         else:
             self.get_logger().warn("Quality check failed. No response received.")
         
@@ -1000,6 +1001,7 @@ class OrderManagement(Node):
 
                     ############## 3.3. Place Part on Tray ##############
                     time.sleep(3)
+                    a = 1
                     self._robot_place_part_on_tray(agv_id,part_quadrant)
                     robot_placed_part_tray_temp = self._placed_part_on_tray
                     fault_gripper_flag_temp = self._fault_gripper_flag
@@ -1007,43 +1009,54 @@ class OrderManagement(Node):
                         if (fault_gripper_flag_temp):
                             ######## Perform Faulty Gripper Challenger#######
                             self.get_logger().info("Its a faulty gripper challenge now")
+                            a = 0
                             break
                         if robot_placed_part_tray_temp:
-                            self.get_logger().info("Part placed. So, continue")
+                            self.get_logger().info("Part placing...")
                             break
                         fault_gripper_flag_temp = self._fault_gripper_flag
                         robot_placed_part_tray_temp = self._placed_part_on_tray
                     self._placed_part_on_tray = False
                     self._fault_gripper_flag =  False
-                    self.get_logger().info("Python Node : Part Placed on Tray")
-                    a = 2
-                    if(a==1):
-                        robot_released_part_temp = self._released_part_on_tray
-                        self._release_part_on_tray(agv_id, part_quadrant)
-                        while not robot_released_part_temp:
-                            robot_released_part_temp = self._released_part_on_tray
-                        self._released_part_on_tray = True
-                    else:
+                    # self.get_logger().info("Python Node : Part Placed on Tray")
+                    if a == 0:
+                        self._faulty_gripper_challenge()
+                        bin_side, pose, orientation = self._find_available_part(v["part_type"], v["part_color"])
+                        if bin_side is None:
+                            self.get_logger().info(f"Part {v['part_color']} {v['part_type']} not available in bins. Skipping.")
+                            v["part_status"] = True
+                            continue
+                        v["pose"] = pose
+                        v["orientation"] = orientation
+                        v["bin"] = bin_side
+                        a = 1
+                        continue
+                    
+                    self._quality_check(order._order_id)
+                    while not self._quality_check_completed:
+                        pass
+                    self._quality_check_completed = False
+                    if part_quadrant in self._faults:
+                        self.get_logger().info(f"Removing Faulty Part")
                         part_dropped_trash_temp = self._part_dropped_trash
                         self._drop_part_in_trash()
                         while not part_dropped_trash_temp:
                             part_dropped_trash_temp = self._part_dropped_trash
-                        self._part_dropped_trash = True
-                        # self._move_robot_home()
-                        # robot_moved_home_status_temp = self._moved_robot_home
-                        # while not robot_moved_home_status_temp :
-                        #     robot_moved_home_status_temp = self._moved_robot_home
-                        # self._moved_robot_home = False
-                        self.get_logger().info("Python Node : Robot Moved to Home")
-                    
-                    self._quality_check(order._order_id)
-                    if part_quadrant in self._faults:
-                        self.get_logger().info(f"Removing Faulty Part")
-                        self._drop_part_in_trash()
+                        self._part_dropped_trash = False
+                        bin_side, pose, orientation = self._find_available_part(v["part_type"], v["part_color"])
+                        if bin_side is None:
+                            self.get_logger().info(f"Part {v['part_color']} {v['part_type']} not available in bins. Skipping.")
+                            v["part_status"] = True
+                            continue
+                        v["pose"] = pose
+                        v["orientation"] = orientation
+                        v["bin"] = bin_side
+
                     else:
                         self.get_logger().info(f"Part Placed on Tray")
                         self._release_part_on_tray(agv_id, part_quadrant)
                         v["part_status"] = True     # Mark the part as placed on tray
+                    self._faults = []
                     
                     if self._check_priority_flag():
                         self.get_logger().info("Order priority received after a part is placed. So returning")
@@ -1051,6 +1064,28 @@ class OrderManagement(Node):
 
             if all(v["part_status"] for v in order._parts_status_tray.values()):
                 break
+            
+    def _faulty_gripper_challenge(self):
+        """
+        Faulty Gripper Challenge
+        """
+        # Dropping to detach from gripper and planning scene
+        part_dropped_trash_temp = self._part_dropped_trash
+        self._drop_part_in_trash()
+        while not part_dropped_trash_temp:
+            part_dropped_trash_temp = self._part_dropped_trash
+        self._part_dropped_trash = True
+        self._move_robot_home()
+        robot_moved_home_status_temp = self._moved_robot_home
+        while not robot_moved_home_status_temp :
+            robot_moved_home_status_temp = self._moved_robot_home
+        self._moved_robot_home = False
+        self.get_logger().info("Python Node : Robot Moved to Home")
+        self.bins_done['Left'] = False
+        self.bins_done['Right'] = False
+        while not (self.bins_done['Left'] and self.bins_done['Right']):
+            pass
+            
     def _lock_tray(self, agv):
         """Function to lock the tray
 
@@ -1210,7 +1245,7 @@ class OrderManagement(Node):
             self._moving_robot_home = True
 
         while not self._move_robot_home_cli.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info("Service not available, waiting...")
+            self.get_logger().info("Move Robot Service not available, waiting...")
 
         request = Trigger.Request()
         future = self._move_robot_home_cli.call_async(request)
@@ -1480,7 +1515,14 @@ class OrderManagement(Node):
         current_gripper_state = message.type
         if (current_gripper_state != self._robot_gripper_state):
             self._robot_gripper_state = current_gripper_state
-
+            
+        if (self._robot_gripper_state == "part_gripper"):
+            if message.enabled:
+                if not message.attached:
+                    self._fault_gripper_flag = True
+                else:
+                    self._fault_gripper_flag = False
+            
     def _robot_pick_part_from_bin(self, part,pose,bin):
         """
         Make the robot pick part from bin
