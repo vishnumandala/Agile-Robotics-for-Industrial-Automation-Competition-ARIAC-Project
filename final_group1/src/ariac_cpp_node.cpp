@@ -150,6 +150,11 @@ FloorRobot::FloorRobot()
       "/commander/drop_part_in_trash",
       std::bind(&FloorRobot::drop_part_in_trash_srv_cb, this,
                 std::placeholders::_1, std::placeholders::_2));
+  // service to detach part from planning scene
+  detach_part_srv_ = create_service<std_srvs::srv::Trigger>(
+      "/commander/detach_part_planning_scene",
+      std::bind(&FloorRobot::detach_part_srv_cb, this,
+                std::placeholders::_1, std::placeholders::_2));
   // add models to the planning scene
   add_models_to_planning_scene();
   executor_->add_node(node_);
@@ -1111,6 +1116,35 @@ bool FloorRobot::drop_part_in_trash(){
       -2.20, 0,1.2, set_robot_orientation(0)));
 
   move_through_waypoints(waypoints, 0.2, 0.1);
+  return true;
+
+}
+
+
+void FloorRobot::detach_part_srv_cb(
+    std_srvs::srv::Trigger::Request::SharedPtr req,
+    std_srvs::srv::Trigger::Response::SharedPtr res)
+{
+  RCLCPP_INFO(get_logger(), "Received request to drop part in trash");
+  (void)req; // remove unused parameter warning
+
+  if (detach_part())
+  {
+    res->success = true;
+    res->message = "Part Detached from planning scene";
+  }
+  else
+  {
+    res->success = false;
+    res->message = "Unable to detach part from planning scene";
+  }
+}
+
+bool FloorRobot::detach_part(){
+  set_gripper_state(false);
+  std::string part_name = part_colors_[floor_robot_attached_part_.color] + "_" +
+                          part_types_[floor_robot_attached_part_.type];
+  floor_robot_->detachObject(part_name);
   return true;
 
 }
