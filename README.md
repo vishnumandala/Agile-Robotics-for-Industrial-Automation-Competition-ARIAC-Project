@@ -42,7 +42,7 @@ This repo is to collaborate with teammates to accomplish assignment goals.
     ros2 launch final_group1 final_group1.launch.py
 ```
 
-`Note`: Run the Command in terminal two after the statement `"You can now start the competetion!"` in Terminal 1.
+`Note`: Run the Command in terminal two after the statement `"You can now start the competition!"` in Terminal 1.
 
 ## Results: 
 You can see the ARIAC environment performing the task sequentially and the terminal 1 and terminal 3 displaying important updates
