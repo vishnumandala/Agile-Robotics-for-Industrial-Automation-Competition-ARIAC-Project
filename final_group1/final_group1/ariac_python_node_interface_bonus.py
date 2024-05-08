@@ -14,6 +14,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from ariac_msgs.msg import Order as OrderMsg, AGVStatus, CompetitionState, BasicLogicalCameraImage,AdvancedLogicalCameraImage,  VacuumGripperState, Part
 from ariac_msgs.srv import MoveAGV, SubmitOrder,ChangeGripper, VacuumGripperControl, PerformQualityCheck
+from rcl_interfaces.srv import GetParameters
 from std_srvs.srv import Trigger
 from queue import PriorityQueue
 from geometry_msgs.msg import Pose,Quaternion, TransformStamped
@@ -156,7 +157,6 @@ class OrderManagement(Node):
         self.set_parameters([sim_time])
 
         self.pkg_share = FindPackageShare("final_group1").find("final_group1")
-        self.pkg_share_gazebo = FindPackageShare("ariac_gazebo").find("ariac_gazebo")
         qos_policy = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=10)
         
         # Create callback groups
@@ -177,6 +177,7 @@ class OrderManagement(Node):
             '_left_table_rgb_subscription': ('/ariac/sensors/left_table_camera_rgb/rgb_image', Image, lambda msg: self._table_tray_callback(msg,'Left'), QoSProfile(depth=10)),
             '_left_bins_rgb_subscription': ('/ariac/sensors/left_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Left'), QoSProfile(depth=10)),
             '_right_bins_rgb_subscription': ('/ariac/sensors/right_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Right'), QoSProfile(depth=10)),
+            '_robot_gripper_state_subscription': ('/ariac/floor_robot_gripper_state', VacuumGripperState, self._robot_gripper_state_subscription_cb, qos_policy),
         }  
         
         # Create the subscriptions
@@ -192,19 +193,14 @@ class OrderManagement(Node):
         self._agv_velocities = {}
         self.current_order = None  # Track the currently processing or waiting order
         self.competition_ended = False
-        self.tables_done = {'Left':False,'Right':False,'Left Rgb':False,'Right Rgb':False}
-        self.bins_done = {'Left':False,'Right':False,'Left Rgb':False,'Right Rgb':False}
+        self.tables_done = {'Left':True,'Right':True,'Left Rgb':True,'Right Rgb':True} # To avoid reprocessing
+        self.bins_done = {'Left':True,'Right':True,'Left Rgb':True,'Right Rgb':True} # To avoid reprocessing
         self.trays={'Left':{},'Right':{}} # To store the tray ids
         self.parts={'Left':{},'Right':{}} # To store the part types and colors
-        self.parts_order = {'Left':[],'Right':[]} # To store the parts in the order they are listed
+        self._parts_order = {'Left':[],'Right':[]} # To store the parts in the order they are listed
         
         # Initialize YOLO model
         self._model = YOLO(f'{self.pkg_share}/dataset/yolo/best.pt')
-        self._yaml_path = f'{self.pkg_share_gazebo}/config/trials/test.yaml'
-        
-        with open(self._yaml_path, 'r') as file:
-            self.data = yaml.safe_load(file)
-            self._read_yaml()
 
         self._Tray_Dictionary = {}
         self._Bins_Dictionary = {}
@@ -242,14 +238,16 @@ class OrderManagement(Node):
             '_set_gripper_state_cli': (VacuumGripperControl, "/ariac/floor_robot_enable_gripper"),
             '_change_gripper_cli': (ChangeGripper, "/ariac/floor_robot_change_gripper"),
             '_drop_part_in_trash_cli' : (Trigger, "/commander/drop_part_in_trash"),
-            '_detach_part_planning_scene_cli' : (Trigger, "/commander/detach_part_planning_scene")
+            '_detach_part_planning_scene_cli' : (Trigger, "/commander/detach_part_planning_scene"),
         }
 
         # Create the service clients
         for attr, (srv_type, srv_name) in clients.items():
             setattr(self, attr, self.create_client(srv_type, srv_name))
 
-
+        # Reading the yaml file
+        self._get_yaml()
+        
         # Initialize the flags for the order processing
         self._picking_part_from_bin = False
         self._picked_part_from_bin = False
@@ -288,27 +286,41 @@ class OrderManagement(Node):
         self._order_submitted_count = 0
         self._faults = []
 
-
         # Start order processing thread
         self._order_processing_thread = threading.Thread(
                 target=self._order_priority_timer_cb
             )
         self._order_processing_thread.start()
 
-    def _read_yaml(self):
-        if 'parts' in self.data and 'bins' in self.data['parts']:
-            bins = self.data['parts']['bins']
-            for bin_id, parts in bins.items():
-                if bin_id in ['bin1', 'bin2', 'bin3', 'bin4']:
-                    for part in parts:
-                        for i in range(len(part['slots'])):
-                            part_entry = (part['color'], part['type'])
-                            self.parts_order['Right'].append(part_entry)
-                else:
-                    for part in parts:
-                        for i in range(len(part['slots'])):
-                            part_entry = (part['color'], part['type'])
-                            self.parts_order['Left'].append(part_entry)
+    def _get_yaml(self):
+        """
+        Function to get the parameters from the yaml file.
+        """
+        self._get_yaml_cli = self.create_client(GetParameters, '/environment_startup_node/get_parameters')
+        request = GetParameters.Request()
+        request.names = ['trial_config_path']
+        future = self._get_yaml_cli.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+        response = future.result()
+        yaml_path = response.values[0].string_value
+        with open(yaml_path, 'r') as file:
+            data = yaml.safe_load(file)
+            if 'parts' in data and 'bins' in data['parts']:
+                bins = data['parts']['bins']
+                for bin_id, parts in bins.items():
+                    if bin_id in ['bin1', 'bin2', 'bin3', 'bin4']:
+                        for part in parts:
+                            for i in range(len(part['slots'])):
+                                part_entry = (part['color'], part['type'])
+                                self._parts_order['Right'].append(part_entry)
+                    else:
+                        for part in parts:
+                            for i in range(len(part['slots'])):
+                                part_entry = (part['color'], part['type'])
+                                self._parts_order['Left'].append(part_entry)
+        self.get_logger().info('Done reading yaml file!')
+        self.tables_done = {x: False for x in self.tables_done}
+        self.bins_done = {x: False for x in self.bins_done}
 
     def _orders_initialization_cb(self, msg):
         """
@@ -466,7 +478,7 @@ class OrderManagement(Node):
         
         if self.tables_done[side+' Rgb'] == False:
             self.tables_done[side+' Rgb'] = True
-            self.get_logger().info(f"Processing trays for side {side}")
+            self.get_logger().info(f"Processing trays for {side} side")
 
             # Placeholder for detected trays
             detected_trays = set()
@@ -572,11 +584,12 @@ class OrderManagement(Node):
         
         # Check if RGB processing is already done to avoid re-processing
         if self.bins_done[side+' Rgb'] == False:
-            order_of_parts = self.parts_order[side]
+            order_of_parts = self._parts_order[side]
+            self.get_logger().info(f"Order of parts for side {side}: {order_of_parts}")
             order_of_parts_counter = Counter(order_of_parts)
             
             self.bins_done[side+' Rgb'] = True
-            self.get_logger().info(f"Processing parts for side {side}")
+            self.get_logger().info(f"Processing parts for {side} side")
             
             # Detecting Parts
             bridge = CvBridge()
@@ -650,6 +663,7 @@ class OrderManagement(Node):
                 self.get_logger().info(f"Parts in the {side} bins Found!")
                 self.parts[side] = order_of_parts
             else:
+                self.get_logger().info(f"Parts in the {side} bins Not Found! Trying again")
                 self.bins_done[side + ' Rgb'] = False
 
     def _multiply_pose(self, pose1: Pose, pose2: Pose) -> Pose:
@@ -728,6 +742,7 @@ class OrderManagement(Node):
                 for k, part in enumerate(self._Bins_Dictionary[side][(type, color)].values()):
                     if not part['picked']:
                         self._Bins_Dictionary[side][(type, color)][k]['picked'] = True
+                        self._parts_order[side].remove((color, type))
                         return side.lower(), part['position'], part['orientation']
         return None, None, None
     
@@ -940,77 +955,7 @@ class OrderManagement(Node):
         ############################## 3. Pick Part from Bin and Place on Tray ########################################
         
         self._pick_place_parts_on_tray(order, agv_id)
-        
-        # for v in order._parts_status_tray.values():            
-        #     # self.get_logger().info("Python Node : Robot Moved to Home")
-        #     if(v["part_status"] == False):
-        #         part_details = Part()
-        #         part_details.color = self._part_color_mapping[v["part_color"]]
-        #         part_details.type = self._part_type_mapping[v["part_type"]]
-        #         part_pose_curr = v["pose"]
-        #         part_pose_curr_orient = v["orientation"]
-        #         part_bin_side = v["bin"]
-        #         part_quadrant = self._quadrant_mapping[v["part_quadrant"]]
-                
-        #         part_pose = Pose()
-        #         part_pose.position.x = part_pose_curr[0]
-        #         part_pose.position.y = part_pose_curr[1]
-        #         part_pose.position.z = part_pose_curr[2]
-        #         part_pose.orientation.x = part_pose_curr_orient[0]
-        #         part_pose.orientation.y = part_pose_curr_orient[1]
-        #         part_pose.orientation.z = part_pose_curr_orient[2]
-        #         part_pose.orientation.w = part_pose_curr_orient[3]
-
-        #         ############## 3.1. Move Robot to Home ##############
-        #         # self._move_robot_home()
-        #         # robot_moved_home_status_temp = self._moved_robot_home
-        #         # while not robot_moved_home_status_temp :
-        #         #     robot_moved_home_status_temp = self._moved_robot_home
-        #         # self._moved_robot_home = False
-        #         # self.get_logger().info("Python Node : Robot Moved to Home")
-
-        #         ############## 3.2. Pick Part from Bin ##############
-        #         time.sleep(1)
-        #         self._robot_pick_part_from_bin(part_details, part_pose, part_bin_side)
-        #         robot_picked_part_bin_temp = self._picked_part_from_bin
-        #         while not robot_picked_part_bin_temp :
-        #             robot_picked_part_bin_temp = self._picked_part_from_bin
-        #         self._picked_part_from_bin = False
-        #         # self.get_logger().info("Python Node : Part Picked From Bin")
-
-        #         ############## 3.3. Place Part on Tray ##############
-        #         time.sleep(3)
-        #         self._robot_place_part_on_tray(agv_id,part_quadrant)
-        #         robot_placed_part_tray_temp = self._placed_part_on_tray
-        #         while not robot_placed_part_tray_temp :
-        #             robot_placed_part_tray_temp = self._placed_part_on_tray
-        #         self._placed_part_on_tray = False
-        #         # self.get_logger().info("Python Node : Part Placed on Tray")
-                
-        #         v["part_status"] = True     # Mark the part as placed on tray
-                
-                # if self._check_priority_flag():
-                #     self.get_logger().info("Order priority received after a part is placed. So returning")
-                #     return 
-                
-        ############## 3.4. Perform Quality Check on placed parts ##############
-                
-        # self._quality_check(order._order_id)
-        # if len(self._faults) > 0:
-        #     self.get_logger().info(f"Removing Faulty Parts")
-        #     for fault in self._faults:
-        #         agv_dict = self._Agvs_Dictionary[agv_id]
-        #         part = agv_dict[fault]["part"]
-        #         type = self._Parts_Dictionary['types'][part.type]
-        #         color = self._Parts_Dictionary['colors'][part.color]
-        #         self._robot_remove_faulty_part(agv_dict[fault]["pose"], agv_id)
-                
-        #         order._parts_status_tray[(type, color, fault)]["part_status"] = False
-
-        #     self.get_logger().info(f"Faulty Parts Removed. Re-Processing Order")
-        #     self._pick_place_parts_on_tray(order, agv_id)
-        #     self._faults = []
-            
+                    
         ############################## 4. Check Order Completion ########################################
         
         # self.get_logger().info(f"Order Status{order._parts_status_tray} ")
@@ -1214,16 +1159,15 @@ class OrderManagement(Node):
         while not part_detached_temp:
             part_detached_temp = self._part_detached
         self._part_detached = True
-        # self._move_robot_home()
-        # robot_moved_home_status_temp = self._moved_robot_home
-        # while not robot_moved_home_status_temp :
-        #     robot_moved_home_status_temp = self._moved_robot_home
-        # self._moved_robot_home = False
-        # self.get_logger().info("Python Node : Robot Moved to Home")
-        self.bins_done['Left'] = False
-        self.bins_done['Right'] = False
-        while not (self.bins_done['Left'] and self.bins_done['Right']):
-            pass
+        self._move_robot_home()
+        robot_moved_home_status_temp = self._moved_robot_home
+        while not robot_moved_home_status_temp :
+            robot_moved_home_status_temp = self._moved_robot_home
+        self._moved_robot_home = False
+        self.get_logger().info("Python Node : Robot Moved to Home")
+        self.bins_done = {x: False for x in self.bins_done.keys()} 
+        while not (self.bins_done.values()):
+            time.sleep(0.1)
             
     def _lock_tray(self, agv):
         """Function to lock the tray
