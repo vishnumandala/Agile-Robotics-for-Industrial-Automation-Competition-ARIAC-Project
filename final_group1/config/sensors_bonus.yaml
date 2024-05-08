@@ -1,4 +1,4 @@
-
+sensors:
   right_bins_camera:
     type: basic_logical_camera
     pose:
