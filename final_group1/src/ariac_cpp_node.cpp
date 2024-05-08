@@ -936,8 +936,6 @@ bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick, geometry_msgs
                         part_pose.position.z + 0.3, set_robot_orientation(0)));
 
   move_through_waypoints(waypoints, 0.3, 0.3);
-  floor_robot_->setJointValueTarget("floor_shoulder_pan_joint", 3.14);
-  move_to_target(); 
   return true;
 }
 
