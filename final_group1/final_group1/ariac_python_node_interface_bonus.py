@@ -416,7 +416,7 @@ class OrderManagement(Node):
         self._submitted_order = False
         self._competition_ended_flag = False
         self._yaml_read = False
-
+        self._reprocessing_yolo = False
 
         self._high_priority_orders = []
         self._normal_orders =[]
@@ -443,10 +443,11 @@ class OrderManagement(Node):
         if not self._competition_started and self._yaml_read:
             if self.tables_done['Left Rgb'] and self.tables_done['Right Rgb'] and self.bins_done['Left Rgb'] and self.bins_done['Right Rgb']:
                 self.get_logger().info("Starting the competition")
+                time.sleep(1)
                 future = self._start_competition_cli.call_async(Trigger.Request())
                 future.add_done_callback(self._start_competition_cb)
             else:
-                self.get_logger().info("Waiting for the sensors to be ready",end='\r')
+                self.get_logger().info("Waiting for the sensors to be ready")
             
     def _start_competition_cb(self, future):
         """
@@ -640,9 +641,9 @@ class OrderManagement(Node):
             tray_poses = message.tray_poses
             if len(tray_poses) > 0:
                 self.tables_done[table_id] = True
-                for tray in range(len(tray_poses)):
+                for i in range(len(tray_poses)):
                     # Get the tray ID, camera pose, and tray pose
-                    tray_pose_id = tray_poses[tray].id
+                    tray_pose_id = self.trays[table_id][i]
                     camera_pose = Pose()
                     camera_pose.position.x = message.sensor_pose.position.x
                     camera_pose.position.y = message.sensor_pose.position.y
@@ -653,21 +654,18 @@ class OrderManagement(Node):
                     camera_pose.orientation.w = message.sensor_pose.orientation.w
 
                     tray_pose = Pose()
-                    tray_pose.position.x = tray_poses[tray].pose.position.x
-                    tray_pose.position.y = tray_poses[tray].pose.position.y
-                    tray_pose.position.z = tray_poses[tray].pose.position.z
-                    tray_pose.orientation.x = tray_poses[tray].pose.orientation.x
-                    tray_pose.orientation.y = tray_poses[tray].pose.orientation.y
-                    tray_pose.orientation.z = tray_poses[tray].pose.orientation.z
-                    tray_pose.orientation.w = tray_poses[tray].pose.orientation.w
+                    tray_pose.position.x = tray_poses[i].position.x
+                    tray_pose.position.y = tray_poses[i].position.y
+                    tray_pose.position.z = tray_poses[i].position.z
+                    tray_pose.orientation.x = tray_poses[i].orientation.x
+                    tray_pose.orientation.y = tray_poses[i].orientation.y
+                    tray_pose.orientation.z = tray_poses[i].orientation.z
+                    tray_pose.orientation.w = tray_poses[i].orientation.w
                     tray_world_pose = self._multiply_pose(camera_pose, tray_pose) # Get the world pose of the tray
                     
-                    # Check if the tray ID is already in the dictionary and update the values
-                    if self._Tray_Dictionary[table_id] is None:
-                        self._Tray_Dictionary[table_id] = {}
-                    else: 
-                        self._Tray_Dictionary[table_id].update({tray_pose_id:{'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z,tray_world_pose.orientation.w], 'status':False}})
-
+                    self._Tray_Dictionary[table_id][tray_pose_id]={'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z,tray_world_pose.orientation.w], 'status':False}
+                self.tables_done[table_id] = True
+                
     def _table_tray_callback(self, message, side='Unknown'):
         """
         Callback for table camera images. Detects trays on the table and updates the tray dictionary.
@@ -877,6 +875,8 @@ class OrderManagement(Node):
                 self.get_logger().info(f"Parts in the {side} bins Found!")
                 self.parts[side] = order_of_parts
                 self.bins_done[side+' Rgb'] = True
+            elif self._reprocessing_yolo:
+                self.parts[side]=final_parts
             else:
                 self.get_logger().info(f"Getting new image for {side} bins!")
                 self.bins_done[side + 's Rgb'] = False
@@ -933,7 +933,7 @@ class OrderManagement(Node):
             if tray_id in self._Tray_Dictionary[key] and not self._Tray_Dictionary[key][tray_id]['status']:
                 side = key
                 self._Tray_Dictionary[key][tray_id]['status'] = True
-                return side, self._Tray_Dictionary[key][tray_id]['position'], self._Tray_Dictionary[key][tray_id]['orientation']
+                return side.lower(), self._Tray_Dictionary[key][tray_id]['position'], self._Tray_Dictionary[key][tray_id]['orientation']
 
     def _find_available_part(self, type, color):
         """
@@ -1050,9 +1050,9 @@ class OrderManagement(Node):
         ############################## 2. Pick Tray and Place on AGV ########################################
         
         if (order._tray_pick_status[tray_id]["status"] ==  False):
-            if order._tray_pick_status[tray_id]["tray_side"] == "Left":
+            if order._tray_pick_status[tray_id]["tray_side"] == "left":
                 tray_side_current = "kts1"
-            elif order._tray_pick_status[tray_id]["tray_side"] == "Right":
+            elif order._tray_pick_status[tray_id]["tray_side"] == "right":
                 tray_side_current = "kts2"
             
             ############## 2.1. Move Robot to Table ##############
@@ -1386,6 +1386,7 @@ class OrderManagement(Node):
             part_detached_temp = self._part_detached
         self._part_detached = True
         self.bins_done = {x: False for x in self.bins_done.keys()} 
+        self._reprocessing_yolo = True
         while not (self.bins_done.values()):
             time.sleep(0.1)
             
