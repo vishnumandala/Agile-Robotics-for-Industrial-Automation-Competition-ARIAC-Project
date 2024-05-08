@@ -1145,6 +1145,8 @@ bool FloorRobot::detach_part(){
   std::string part_name = part_colors_[floor_robot_attached_part_.color] + "_" +
                           part_types_[floor_robot_attached_part_.type];
   floor_robot_->detachObject(part_name);
+  std::vector<geometry_msgs::msg::Pose> waypoints;
+  waypoints.clear();
   return true;
 
 }

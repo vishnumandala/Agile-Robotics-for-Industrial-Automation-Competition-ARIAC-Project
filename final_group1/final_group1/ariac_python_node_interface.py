@@ -1042,8 +1042,9 @@ class OrderManagement(Node):
                         continue
                     
                     self._quality_check(order._order_id)
-                    while not self._quality_check_completed:
-                        pass
+                    quality_check_temp_flag = self._quality_check_completed
+                    while not quality_check_temp_flag:
+                        quality_check_temp_flag = self._quality_check_completed
                     self._quality_check_completed = False
                     if part_quadrant in self._faults:
                         self.get_logger().info(f"Removing Faulty Part")
@@ -1084,12 +1085,12 @@ class OrderManagement(Node):
         while not part_detached_temp:
             part_detached_temp = self._part_detached
         self._part_detached = True
-        # self._move_robot_home()
-        # robot_moved_home_status_temp = self._moved_robot_home
-        # while not robot_moved_home_status_temp :
-        #     robot_moved_home_status_temp = self._moved_robot_home
-        # self._moved_robot_home = False
-        # self.get_logger().info("Python Node : Robot Moved to Home")
+        self._move_robot_home()
+        robot_moved_home_status_temp = self._moved_robot_home
+        while not robot_moved_home_status_temp :
+            robot_moved_home_status_temp = self._moved_robot_home
+        self._moved_robot_home = False
+        self.get_logger().info("Python Node : Robot Moved to Home")
         self.bins_done['Left'] = False
         self.bins_done['Right'] = False
         while not (self.bins_done['Left'] and self.bins_done['Right']):
