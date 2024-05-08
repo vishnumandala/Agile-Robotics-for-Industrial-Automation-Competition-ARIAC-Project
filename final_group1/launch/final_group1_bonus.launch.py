@@ -5,6 +5,16 @@ from ariac_moveit_config.parameters import generate_parameters
 
 
 def launch_setup(context, *args, **kwargs):
+    """Launch ariac bonus node and moveit_cpp node
+
+    Args:
+        context (any): context
+        *args: args
+        **kwargs: kwargs
+
+    Returns:
+        List: list of nodes to start
+    """
     moveit_cpp = Node(
         package="final_group1",
         executable="moveit_cpp_python",
@@ -26,10 +36,10 @@ def launch_setup(context, *args, **kwargs):
 
     return nodes_to_start
 def generate_launch_description():    
-    """This function is used to launch the thermostat_house node and set the parameters for the node.
+    """Launch ariac bonus node and moveit_cpp node
 
     Returns:
-        LaunchDescription: The launch description of the nodes.
+        LaunchDescription: return launch description
     """
     declared_arguments = []
 
