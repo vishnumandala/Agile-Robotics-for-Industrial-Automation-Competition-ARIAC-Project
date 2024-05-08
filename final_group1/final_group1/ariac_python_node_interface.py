@@ -229,7 +229,7 @@ class OrderManagement(Node):
             '_set_gripper_state_cli': (VacuumGripperControl, "/ariac/floor_robot_enable_gripper"),
             '_change_gripper_cli': (ChangeGripper, "/ariac/floor_robot_change_gripper"),
             '_drop_part_in_trash_cli' : (Trigger, "/commander/drop_part_in_trash"),
-            '_detach_part_planning_scene_cli' : (Trigger, "/commander/detach_part_planning_scene")
+            '_detach_part_planning_scene_cli' : (Trigger, "/commander/detach_part_planning_scene"),
         }
 
         # Create the service clients
