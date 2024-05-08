@@ -936,7 +936,8 @@ bool FloorRobot::pick_bin_part(ariac_msgs::msg::Part part_to_pick, geometry_msgs
                         part_pose.position.z + 0.3, set_robot_orientation(0)));
 
   move_through_waypoints(waypoints, 0.3, 0.3);
-
+  floor_robot_->setJointValueTarget("floor_shoulder_pan_joint", 3.14);
+  move_to_target(); 
   return true;
 }
 
@@ -1008,7 +1009,7 @@ bool FloorRobot::place_part_in_tray(int agv_num, int quadrant)
     waypoints.push_back(Utils::build_pose(
       part_drop_pose.position.x, part_drop_pose.position.y,
       part_drop_pose.position.z +
-          part_heights_[floor_robot_attached_part_.type] + drop_height_+0.009,
+          part_heights_[floor_robot_attached_part_.type] + drop_height_+0.011,
       set_robot_orientation(0)));
       }
 
@@ -1093,6 +1094,11 @@ void FloorRobot::drop_part_in_trash_srv_cb(
 }
 
 bool FloorRobot::drop_part_in_trash(){
+
+  // Move up slightly
+  std::vector<geometry_msgs::msg::Pose> waypoints;
+  floor_robot_->setJointValueTarget("floor_shoulder_pan_joint", 0);
+  move_to_target();
   
   // Move to agv
   floor_robot_->setJointValueTarget(
@@ -1100,7 +1106,6 @@ bool FloorRobot::drop_part_in_trash(){
       rail_positions_["disposal_bin"]);
   floor_robot_->setJointValueTarget("floor_shoulder_pan_joint", 0);
   move_to_target();
-  std::vector<geometry_msgs::msg::Pose> waypoints;
   // Drop part in quadrant
   waypoints.clear();
   waypoints.push_back(Utils::build_pose(

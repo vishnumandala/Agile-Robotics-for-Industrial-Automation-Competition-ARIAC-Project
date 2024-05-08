@@ -12,7 +12,7 @@ def launch_setup(context, *args, **kwargs):
         parameters=generate_parameters(),
     )
     ariac_start_cpp = TimerAction(
-            period=5.0,
+            period=10.0,
             actions=[
                 Node(
                 package='final_group1',
