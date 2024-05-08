@@ -12,7 +12,7 @@ This repo is to collaborate with teammates to accomplish assignment goals.
 
 
 - Clone the package to the ariac workspace / copy the folder final_group1 into ariac_ws. Also make sure robot_commander_msgs folder is present with final_group1 in workspace src folder
-- Add the `final_spring2024.yaml` file to your `ariac_gazebo` package in `config/trails/`
+- Add the `final_spring2024.yaml` file to your `ariac_gazebo` package in `config/trials/`
 - Build the workspace and source using following commands
 ```bash
     # Install YOLO library
