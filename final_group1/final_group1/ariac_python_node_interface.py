@@ -323,8 +323,8 @@ class OrderManagement(Node):
                 while True:
                     h_len = len(self._high_priority_orders)
                     n_len = len(self._normal_orders)
-                    self.get_logger().info(f"High priority {self._high_priority_orders} ")
-                    self.get_logger().info(f"Normal Priority {self._normal_orders} ")
+                    # self.get_logger().info(f"High priority {self._high_priority_orders} ")
+                    # self.get_logger().info(f"Normal Priority {self._normal_orders} ")
                     if(h_len > 0):
                         self.current_order_is = "high"
                         ord_to_process = self._high_priority_orders[0]
@@ -341,8 +341,8 @@ class OrderManagement(Node):
                     elif (self._order_submitted_count == self._order_announcements_count and self._competition_ended_flag):
                         self.get_logger().info(f"Ending the Process order thread!!!")
                         break
-                    else:
-                        self.get_logger().info(f"Order count {self._order_announcements_count} , {self._order_submitted_count}")
+                    # else:
+                    #     self.get_logger().info(f"Order count {self._order_announcements_count} {self._competition_ended_flag}, {self._order_submitted_count}")
 
     def _check_priority_flag(self):
         """
@@ -380,7 +380,9 @@ class OrderManagement(Node):
         location_status_map = {0: "Kitting Station", 3: "WAREHOUSE"}
         status = location_status_map.get(msg.location, "OTHER")
         current_velocity = msg.velocity
-        if agv_id not in self._agv_statuses or self._agv_statuses[agv_id] != status:
+        if agv_id not in self._agv_statuses :
+            self._agv_statuses[agv_id] = status
+        if status == "WAREHOUSE" and self._agv_statuses[agv_id] != status:
             self._agv_statuses[agv_id] = status
         if agv_id not in self._agv_velocities or self._agv_velocities[agv_id] != current_velocity:
             self._agv_velocities[agv_id] = current_velocity
@@ -1203,6 +1205,7 @@ class OrderManagement(Node):
         Periodically check if all orders are processed and AGVs are in warehouse, then end competition.
         """
         while not self.competition_ended and rclpy.ok():
+            self.get_logger().info(f"AGv values {self._agv_statuses.values()}")
             if (all(status == "WAREHOUSE" for status in self._agv_statuses.values()) and self._order_submitted_count == self._order_announcements_count):
                 self.get_logger().info("All orders processed and AGVs at destination. Preparing to end competition.")
                 self._end_competition()
