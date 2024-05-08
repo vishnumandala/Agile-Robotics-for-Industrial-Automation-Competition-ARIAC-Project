@@ -19,7 +19,7 @@ def launch_setup(context, *args, **kwargs):
         parameters=generate_parameters(),
     )
     ariac_start_cpp = TimerAction(
-            period=15.0,
+            period=60.0,
             actions=[
                 Node(
                 package='final_group1',
@@ -35,37 +35,37 @@ def launch_setup(context, *args, **kwargs):
             name='OrderManagement',
             output='screen'
             )
-    start_rviz = LaunchConfiguration("rviz")
+    # start_rviz = LaunchConfiguration("rviz")
 
-    rviz_config_file = PathJoinSubstitution(
-        [FindPackageShare("final_group1"), "rviz", "moveit_demo.rviz"]
-    )
+    # rviz_config_file = PathJoinSubstitution(
+    #     [FindPackageShare("final_group1"), "rviz", "moveit_demo.rviz"]
+    # )
     
-    moveit_python = Node(
-        package="final_group1",
-        executable="floor_robot_demo.py",
-        output="screen"
-    )
-    rviz_node = Node(
-        package="rviz2",
-        executable="rviz2",
-        name="rviz2_moveit",
-        output="log",
-        arguments=["-d", rviz_config_file],
-        parameters=generate_parameters(),
-        condition=IfCondition(start_rviz),
-    )
+    # moveit_python = Node(
+    #     package="final_group1",
+    #     executable="floor_robot_demo.py",
+    #     output="screen"
+    # )
+    # rviz_node = Node(
+    #     package="rviz2",
+    #     executable="rviz2",
+    #     name="rviz2_moveit",
+    #     output="log",
+    #     arguments=["-d", rviz_config_file],
+    #     parameters=generate_parameters(),
+    #     condition=IfCondition(start_rviz),
+    # )
     
 
-    moveit = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            [
-                FindPackageShare("ariac_moveit_config"),
-                "/launch",
-                "/ariac_robots_moveit.launch.py",
-            ]
-        )
-    )
+    # moveit = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource(
+    #         [
+    #             FindPackageShare("ariac_moveit_config"),
+    #             "/launch",
+    #             "/ariac_robots_moveit.launch.py",
+    #         ]
+    #     )
+    # )
 
     nodes_to_start = [
         moveit_cpp,
