@@ -167,19 +167,19 @@ class OrderManagement(Node):
         
         # Define the subscriptions
         subscriptions = {
-            '_left_table_camera_subscription': ('/ariac/sensors/left_table_camera/image', BasicLogicalCameraImage, lambda msg: self._table_camera_callback(msg, 'Left')),
-            '_right_table_camera_subscription': ('/ariac/sensors/right_table_camera/image', BasicLogicalCameraImage, lambda msg: self._table_camera_callback(msg, 'Right')),
-            '_left_bins_camera_subscription': ('/ariac/sensors/left_bins_camera/image', BasicLogicalCameraImage, lambda msg: self._bin_camera_callback(msg, 'Left')),  
-            '_right_bins_camera_subscription': ('/ariac/sensors/right_bins_camera/image', BasicLogicalCameraImage, lambda msg: self._bin_camera_callback(msg, 'Right')),
-            '_right_table_rgb_subscription': ('/ariac/sensors/right_table_camera_rgb/rgb_image', Image, lambda msg: self._table_tray_callback(msg,'Right')),
-            '_left_table_rgb_subscription': ('/ariac/sensors/left_table_camera_rgb/rgb_image', Image, lambda msg: self._table_tray_callback(msg,'Left')),
-            '_left_bins_rgb_subscription': ('/ariac/sensors/left_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Left')),
-            '_right_bins_rgb_subscription': ('/ariac/sensors/right_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Right')),
+            '_left_table_camera_subscription': ('/ariac/sensors/left_table_camera/image', BasicLogicalCameraImage, lambda msg: self._table_camera_callback(msg, 'Left'), qos_policy),
+            '_right_table_camera_subscription': ('/ariac/sensors/right_table_camera/image', BasicLogicalCameraImage, lambda msg: self._table_camera_callback(msg, 'Right'), qos_policy),
+            '_left_bins_camera_subscription': ('/ariac/sensors/left_bins_camera/image', BasicLogicalCameraImage, lambda msg: self._bin_camera_callback(msg, 'Left'), qos_policy),  
+            '_right_bins_camera_subscription': ('/ariac/sensors/right_bins_camera/image', BasicLogicalCameraImage, lambda msg: self._bin_camera_callback(msg, 'Right'), qos_policy),
+            '_right_table_rgb_subscription': ('/ariac/sensors/right_table_camera_rgb/rgb_image', Image, lambda msg: self._table_tray_callback(msg,'Right'), QoSProfile(depth=10)),
+            '_left_table_rgb_subscription': ('/ariac/sensors/left_table_camera_rgb/rgb_image', Image, lambda msg: self._table_tray_callback(msg,'Left'), QoSProfile(depth=10)),
+            '_left_bins_rgb_subscription': ('/ariac/sensors/left_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Left'), QoSProfile(depth=10)),
+            '_right_bins_rgb_subscription': ('/ariac/sensors/right_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Right'), QoSProfile(depth=10)),
         }  
         
         # Create the subscriptions
-        for attr, (topic, msg_type, callback) in subscriptions.items():
-            setattr(self, attr, self.create_subscription(msg_type, topic, callback, qos_profile=qos_policy, callback_group=self.callback_groups['_sensor_callback_group']))
+        for attr, (topic, msg_type, callback,qos) in subscriptions.items():
+            setattr(self, attr, self.create_subscription(msg_type, topic, callback, qos_profile=qos, callback_group=self.callback_groups['_sensor_callback_group']))
             
         self._competition_state_subscription = self.create_subscription(CompetitionState,"/ariac/competition_state",self._competition_state_cb,qos_profile=qos_policy,callback_group=self.callback_groups['_competition_callback_group'])
         self._orders_subscription = self.create_subscription(OrderMsg,"/ariac/orders",self._orders_initialization_cb,qos_profile=qos_policy,callback_group=self.callback_groups['_order_callback_group'])
@@ -395,6 +395,7 @@ class OrderManagement(Node):
             self._Tray_Dictionary[table_id]={}
             tray_poses = message.tray_poses
             if len(tray_poses) > 0:
+                self.tables_done[table_id] = True
                 for i in range(len(tray_poses)):
                     tray_pose_id = self.trays[table_id][i]
                     
@@ -416,11 +417,9 @@ class OrderManagement(Node):
                     tray_pose.orientation.z = tray_poses[i].orientation.z
                     tray_pose.orientation.w = tray_poses[i].orientation.w
 
-
                     tray_world_pose = self._multiply_pose(camera_pose, tray_pose)
-
-                    self._Tray_Dictionary[table_id][tray_pose_id]={'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z], 'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z], 'status':False}
-                self.tables_done[table_id] = True
+                    self._Tray_Dictionary[table_id].update({tray_pose_id:{'position': [tray_world_pose.position.x,tray_world_pose.position.y,tray_world_pose.position.z],
+                                                                          'orientation': [tray_world_pose.orientation.x,tray_world_pose.orientation.y,tray_world_pose.orientation.z,tray_world_pose.orientation.w], 'status':False}})
 
     def _table_tray_callback(self, message, side='Unknown'):
         """
@@ -435,6 +434,7 @@ class OrderManagement(Node):
         
         if self.tables_done[side+' Rgb'] == False:
             self.tables_done[side+' Rgb'] = True
+            self.get_logger().info(f"Processing trays for side {side}")
 
             # Placeholder for detected trays
             detected_trays = set()
@@ -499,130 +499,122 @@ class OrderManagement(Node):
             bin_camera_pose.orientation.w = message.sensor_pose.orientation.w
 
             self._Bins_Dictionary[side]={}
-            for i in range(len(bin_poses)):
-                bin_part = self.parts[side][i]
-                print('Bin Part:',bin_part)
-                bin_part_pose = Pose()
-                bin_part_pose.position.x = bin_poses[i].position.x
-                bin_part_pose.position.y = bin_poses[i].position.y
-                bin_part_pose.position.z = bin_poses[i].position.z
-                bin_part_pose.orientation.x = bin_poses[i].orientation.x
-                bin_part_pose.orientation.y = bin_poses[i].orientation.y
-                bin_part_pose.orientation.z = bin_poses[i].orientation.z
-                bin_part_pose.orientation.w = bin_poses[i].orientation.w
+            if len(bin_poses) > 0:
+                self.bins_done[side] = True
+                for i in range(len(bin_poses)):
+                    bin_part = self.parts[side][i]
+                    print('Bin Part:',bin_part)
+                    bin_part_pose = Pose()
+                    bin_part_pose.position.x = bin_poses[i].position.x
+                    bin_part_pose.position.y = bin_poses[i].position.y
+                    bin_part_pose.position.z = bin_poses[i].position.z
+                    bin_part_pose.orientation.x = bin_poses[i].orientation.x
+                    bin_part_pose.orientation.y = bin_poses[i].orientation.y
+                    bin_part_pose.orientation.z = bin_poses[i].orientation.z
+                    bin_part_pose.orientation.w = bin_poses[i].orientation.w
 
-                bin_world_pose = self._multiply_pose(bin_camera_pose, bin_part_pose)
-                type = bin_part[1]
-                color = bin_part[0]
-                
-                if (type,color) in self._Bins_Dictionary[side].keys():
-                    keys=self._Bins_Dictionary[side][(type,color)].keys()
-                    self._Bins_Dictionary[side][(type,color)][len(keys)]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z],'picked': False}
-                
-                else:
-                    self._Bins_Dictionary[side][(type,color)]={}
-                    self._Bins_Dictionary[side][(type,color)][0]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z], 'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z],'picked': False}
-            self.bins_done[side] = True
+                    bin_world_pose = self._multiply_pose(bin_camera_pose, bin_part_pose)
+                    type = bin_part[1]
+                    color = bin_part[0]
+                    if (type,color) in self._Bins_Dictionary[side].keys():
+                        keys=self._Bins_Dictionary[side][(type,color)].keys()
+                        self._Bins_Dictionary[side][(type,color)][len(keys)]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z],
+                                                                            'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z,bin_world_pose.orientation.w],'picked': False}
+                    
+                    else:
+                        self._Bins_Dictionary[side][(type,color)]={}
+                        self._Bins_Dictionary[side][(type,color)][0]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z],
+                                                                    'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z,bin_world_pose.orientation.w],'picked': False}
 
     def _bin_part_callback(self, message, side='Unknown'):
-        # self.get_logger().info(f"Starting bin part callback for {side}")
+        """ Callback for bin camera images. Detects parts in the bins and updates the parts dictionary.
+
+        Args:
+            message (Image): Image message from the camera
+            side (str, optional): Side of the bin. Defaults to 'Unknown'.
+        """
+
         if side == 'Unknown':
             self.get_logger().warn("Unknown side ID")
             return
+        
         # Check if RGB processing is already done to avoid re-processing
-        if self.bins_done[side+' Rgb']:
-            # Log that processing is being skipped because it's already done
-            # self.get_logger().info(f"RGB processing already done for {side}, skipping.")
-            return
-        
-        # if not self.bins_done[side+' Rgb']:
-        #     self.get_logger().info(f"Processing RGB for {side}")
-        self.bins_done[side+' Rgb'] = True
-        
-        # Detecting Parts
-        bridge = CvBridge()
-        
-        try:
-            cv_image = bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
-        except CvBridgeError as e:
-            self.get_logger().error(f"Bridge conversion error: {e}")
-            return
-        
-        image = cv_image
-        if image is None:
-            self.bins_done[side+' Rgb'] = False
-            self.get_logger().error("No Image data after conversion")
-            return
-        
-        # Compute the median of the gradient magnitudes
-        sobelx = cv.Sobel(image, cv.CV_64F, 1, 0, ksize=5)
-        sobely = cv.Sobel(image, cv.CV_64F, 0, 1, ksize=5)
-        gradient_magnitude = np.sqrt(sobelx**2 + sobely**2)
-        median_val = np.median(gradient_magnitude)
-
-        # Set lower and upper thresholds based on the median
-        sigma = 0.33
-        lower = int(max(0, (1.0 - sigma) * median_val))
-        upper = int(min(255, (1.0 + sigma) * median_val))
-        
-        image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-        
-        # Edge detection on the image
-        edges = cv.Canny(image, lower, upper)
-        edges = cv.cvtColor(edges, cv.COLOR_GRAY2RGB)
+        if self.bins_done[side+' Rgb'] == False:
+            self.bins_done[side+' Rgb'] = True
+            self.get_logger().info(f"Processing parts for side {side}")
             
-        results = self._model(edges)
-        parts = []
-        for r in results:
-            boxes = r.boxes
-            for box in boxes:
-                b=box.xyxy[0].to('cpu').detach().numpy().copy()
-                c=box.cls
-                class_name = self._model.names[int(c)]
-                top = int(b[0])
-                left = int(b[1])
-                bottom = int(b[2])
-                right = int(b[3])
-                parts.append((class_name, top, left, bottom, right))
-        
-        # Sorting parts based on location of the part
-        parts = sorted(parts, key=lambda x: np.sqrt(x[1]**2 + x[2]**2))
-        
-        parts_ims = []
-        for part in parts:
-            parts_ims.append(image[part[2]:part[4],part[1]:part[3]])
-
-        final_parts = []
-        # print(f'{side} side sorted Parts:',parts)
-        self.get_logger().info(f"{side} side sorted Parts: {parts}")
-        sys.stdout.flush()
-
-        hsv_ranges = {
-            'Red': ([169, 100, 100], [189, 255, 255]),
-            'Green': ([57, 100, 100], [77, 255, 255]),
-            'Blue': ([105, 100, 100], [125, 255, 255]),
-            'Orange': ([3, 100, 100], [23, 255, 255]),
-            'Purple': ([128, 100, 100], [148, 255, 255])
-        }
-
-        for i in range(len(parts_ims)):
-            part_color = None
-            hsv = cv.cvtColor(parts_ims[i], cv.COLOR_BGR2HSV)
-            self.get_logger().info(f"{side} side hsv shape: {hsv.shape}")
-            for color, (lower, upper) in hsv_ranges.items():
-                self.get_logger().info(f"{side} side color: {color}")
-                lower = np.array(lower, dtype=np.uint8)
-                upper = np.array(upper, dtype=np.uint8)
-                mask = cv.inRange(hsv, lower, upper)
-                self.get_logger().info(f"{side} color {color}, countNonZero: {cv.countNonZero(mask)}")
-                if cv.countNonZero(mask) > 0:
-                    part_color = color
-                    final_parts.append((part_color, parts[i][0]))
+            # Detecting Parts
+            bridge = CvBridge()
             
-        # print(f'{side} side Parts:',final_parts)
-        self.get_logger().info(f"{side} side Final Parts: {final_parts}")
-        self.parts[side] = final_parts
-        self.get_logger().info(f"Bin part callback for {side} completed")
+            try:
+                cv_image = bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
+            except CvBridgeError as e:
+                self.get_logger().error(f"Bridge conversion error: {e}")
+                return
+            
+            image = cv_image
+            
+            # Compute the median of the gradient magnitudes
+            sobelx = cv.Sobel(image, cv.CV_64F, 1, 0, ksize=5)
+            sobely = cv.Sobel(image, cv.CV_64F, 0, 1, ksize=5)
+            gradient_magnitude = np.sqrt(sobelx**2 + sobely**2)
+            median_val = np.median(gradient_magnitude)
+
+            # Set lower and upper thresholds based on the median
+            sigma = 0.33
+            lower = int(max(0, (1.0 - sigma) * median_val))
+            upper = int(min(255, (1.0 + sigma) * median_val))
+            
+            gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+            
+            # Edge detection on the image
+            edges = cv.Canny(gray, lower, upper)
+            edges = cv.cvtColor(edges, cv.COLOR_GRAY2RGB)
+                
+            # Detecting parts using YOLO
+            res = self._model(edges)
+            parts = []
+            for r in res:
+                boxes = r.boxes
+                for box in boxes:
+                    b=box.xyxy[0].to('cpu').detach().numpy().copy()
+                    c=box.cls
+                    class_name = self._model.names[int(c)]
+                    top = int(b[0])
+                    left = int(b[1])
+                    bottom = int(b[2])
+                    right = int(b[3])
+                    parts.append((class_name, top, left, bottom, right))
+            
+            # Sorting parts based on location of the part
+            parts = sorted(parts, key=lambda x: np.sqrt(x[1]**2 + x[2]**2))
+            
+            final_parts = []
+
+            hsv_ranges = {
+                'Red': ([169, 100, 100], [189, 255, 255]),
+                'Green': ([57, 100, 100], [77, 255, 255]),
+                'Blue': ([105, 100, 100], [125, 255, 255]),
+                'Orange': ([3, 100, 100], [23, 255, 255]),
+                'Purple': ([128, 100, 100], [148, 255, 255])
+            }
+            
+            # Detecting colors of the parts
+            for part in parts:
+                max_area = 0
+                part_color = None
+                hsv = cv.cvtColor(image[part[2]:part[4], part[1]:part[3]], cv.COLOR_BGR2HSV)
+                for color, (lower, upper) in hsv_ranges.items():
+                    lower = np.array(lower, dtype=np.uint8)
+                    upper = np.array(upper, dtype=np.uint8)
+                    mask = cv.inRange(hsv, lower, upper)
+                    area = cv.countNonZero(mask)
+                    if area > max_area:
+                        part_color = color
+                        max_area = area
+                final_parts.append((part_color, part[0]))
+                
+            self.parts[side] = final_parts
 
     def _multiply_pose(self, pose1: Pose, pose2: Pose) -> Pose:
         '''
@@ -849,6 +841,7 @@ class OrderManagement(Node):
             ######### 2.3. Move Robot to Tray #########
             tray_pose_curr = order._tray_pick_status[tray_id]["tray_pose"]
             tray_orientation_curr = order._tray_pick_status[tray_id]["tray_orientation"]
+            
             
             tray_pose = Pose()
             tray_pose.position.x = tray_pose_curr[0]

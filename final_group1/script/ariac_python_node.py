@@ -10,8 +10,8 @@ Description: main function to spin the node.
 
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
-from final_group1.ariac_python_node_interface import OrderManagement
-# from final_group1.ariac_python_node_interface_bonus import OrderManagement
+# from final_group1.ariac_python_node_interface import OrderManagement
+from final_group1.ariac_python_node_interface_bonus import OrderManagement
 
 
 def main(args=None):
