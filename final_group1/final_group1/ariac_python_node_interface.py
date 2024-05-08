@@ -315,7 +315,7 @@ class OrderManagement(Node):
         Function to process the orders based on priority.
         """
         while False in self.tables_done.values() or False in self.bins_done.values():
-            self.get_logger().info(f"Still reading cameras!!!")
+            # self.get_logger().info(f"Still reading cameras!!!")
             pass
         else:
             if not self._competition_started:
@@ -1205,7 +1205,7 @@ class OrderManagement(Node):
         Periodically check if all orders are processed and AGVs are in warehouse, then end competition.
         """
         while not self.competition_ended and rclpy.ok():
-            self.get_logger().info(f"AGv values {self._agv_statuses.values()}")
+            # self.get_logger().info(f"AGv values {self._agv_statuses.values()}")
             if (all(status == "WAREHOUSE" for status in self._agv_statuses.values()) and self._order_submitted_count == self._order_announcements_count):
                 self.get_logger().info("All orders processed and AGVs at destination. Preparing to end competition.")
                 self._end_competition()
