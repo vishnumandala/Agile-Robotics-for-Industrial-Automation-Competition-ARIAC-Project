@@ -179,10 +179,14 @@ class OrderManagement(Node):
             '_right_bins_rgb_subscription': ('/ariac/sensors/right_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Right'), QoSProfile(depth=10)),
         }  
         
+        subscriptions_additional = {
+            '_robot_gripper_state_subscription': ('/ariac/floor_robot_gripper_state', VacuumGripperState, self._robot_gripper_state_subscription_cb,qos_policy)
+        }
         # Create the subscriptions
         for attr, (topic, msg_type, callback,qos) in subscriptions.items():
             setattr(self, attr, self.create_subscription(msg_type, topic, callback, qos_profile=qos, callback_group=self.callback_groups['_sensor_callback_group']))
-            
+        for attr, (topic, msg_type, callback,qos) in subscriptions_additional.items():
+            setattr(self, attr, self.create_subscription(msg_type, topic, callback, qos_profile=qos, callback_group=self.callback_groups['_agv_callback_group']))
         self._competition_state_subscription = self.create_subscription(CompetitionState,"/ariac/competition_state",self._competition_state_cb,qos_profile=qos_policy,callback_group=self.callback_groups['_competition_callback_group'])
         self._orders_subscription = self.create_subscription(OrderMsg,"/ariac/orders",self._orders_initialization_cb,qos_profile=qos_policy,callback_group=self.callback_groups['_order_callback_group'])
         
@@ -200,7 +204,7 @@ class OrderManagement(Node):
         
         # Initialize YOLO model
         self._model = YOLO(f'{self.pkg_share}/dataset/yolo/best.pt')
-        self._yaml_path = f'{self.pkg_share_gazebo}/config/trials/test.yaml'
+        self._yaml_path = f'{self.pkg_share_gazebo}/config/trials/final_spring2024.yaml'
         
         with open(self._yaml_path, 'r') as file:
             self.data = yaml.safe_load(file)
@@ -1013,7 +1017,7 @@ class OrderManagement(Node):
             
         ############################## 4. Check Order Completion ########################################
         
-        # self.get_logger().info(f"Order Status{order._parts_status_tray} ")
+        self.get_logger().info(f"Order Status{order._parts_status_tray} ")
         order_completed_flag = True
         for k,v in order._parts_status_tray.items():
             if(v["part_status"] ==  False):
@@ -1172,8 +1176,9 @@ class OrderManagement(Node):
                         continue
                     
                     self._quality_check(order._order_id)
-                    while not self._quality_check_completed:
-                        pass
+                    quality_check_temp_flag = self._quality_check_completed
+                    while not quality_check_temp_flag:
+                        quality_check_temp_flag = self._quality_check_completed
                     self._quality_check_completed = False
                     if part_quadrant in self._faults:
                         self.get_logger().info(f"Removing Faulty Part")
@@ -1214,12 +1219,12 @@ class OrderManagement(Node):
         while not part_detached_temp:
             part_detached_temp = self._part_detached
         self._part_detached = True
-        # self._move_robot_home()
-        # robot_moved_home_status_temp = self._moved_robot_home
-        # while not robot_moved_home_status_temp :
-        #     robot_moved_home_status_temp = self._moved_robot_home
-        # self._moved_robot_home = False
-        # self.get_logger().info("Python Node : Robot Moved to Home")
+        self._move_robot_home()
+        robot_moved_home_status_temp = self._moved_robot_home
+        while not robot_moved_home_status_temp :
+            robot_moved_home_status_temp = self._moved_robot_home
+        self._moved_robot_home = False
+        self.get_logger().info("Python Node : Robot Moved to Home")
         self.bins_done['Left'] = False
         self.bins_done['Right'] = False
         while not (self.bins_done['Left'] and self.bins_done['Right']):
