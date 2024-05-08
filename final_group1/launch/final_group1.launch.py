@@ -1,3 +1,4 @@
+from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import TimerAction,DeclareLaunchArgument, OpaqueFunction
 from ariac_moveit_config.parameters import generate_parameters

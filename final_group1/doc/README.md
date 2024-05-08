@@ -62,7 +62,7 @@ This repo is to collaborate with teammates to accomplish assignment goals.
     `Note`: Run the Command in terminal two after the statement `"You can now start the competetion!"` in Terminal 1.
 
 # Optional
-- To run the codes place `ariac_group1.sh` or `ariac_group1_bonus.sh` in your workspace along with src, build, install folders and double click it to run the terminals.
+- To run the codes place `ariac_group1.sh` or `ariac_group1_bonus.sh` in your workspace along with src, build, install folders and double click it to run the terminals. You can find these files in doc folder of the zip file.
 
 
 ## Results: 
