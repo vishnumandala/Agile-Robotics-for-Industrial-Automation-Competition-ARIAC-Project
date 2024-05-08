@@ -1040,8 +1040,9 @@ class OrderManagement(Node):
                         continue
                     
                     self._quality_check(order._order_id)
-                    while not self._quality_check_completed:
-                        pass
+                    quality_check_temp_flag = self._quality_check_completed
+                    while not quality_check_temp_flag:
+                        quality_check_temp_flag = self._quality_check_completed
                     self._quality_check_completed = False
                     if part_quadrant in self._faults:
                         self.get_logger().info(f"Removing Faulty Part")
