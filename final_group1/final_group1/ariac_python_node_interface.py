@@ -314,35 +314,37 @@ class OrderManagement(Node):
         """
         Function to process the orders based on priority.
         """
-        while False in self.tables_done.values() or False in self.bins_done.values():
-            # self.get_logger().info(f"Still reading cameras!!!")
-            pass
-        else:
-            if not self._competition_started:
-                self._competition_started = True
-                while True:
-                    h_len = len(self._high_priority_orders)
-                    n_len = len(self._normal_orders)
-                    # self.get_logger().info(f"High priority {self._high_priority_orders} ")
-                    # self.get_logger().info(f"Normal Priority {self._normal_orders} ")
-                    if(h_len > 0):
-                        self.current_order_is = "high"
-                        ord_to_process = self._high_priority_orders[0]
-                        self._process_order(ord_to_process)
-                        self._high_priority_orders.pop(0)   
+        table_done_temp=self.tables_done.copy()
+        bin_done_temp=self.bins_done.copy()
+        while not all(table_done_temp.values()) or not all(bin_done_temp.values()):
+            table_done_temp=self.tables_done.copy()
+            bin_done_temp=self.bins_done.copy()
+            # rclpy.spin_once(self)
+            time.sleep(0.1)
+        self.get_logger().info(f"Starting the Process order thread!!!")
+        if not self._competition_started:
+            self._competition_started = True
+            while True:
+                h_len = len(self._high_priority_orders)
+                n_len = len(self._normal_orders)
+                # self.get_logger().info(f"High priority {self._high_priority_orders} ")
+                # self.get_logger().info(f"Normal Priority {self._normal_orders} ")
+                if(h_len > 0):
+                    self.current_order_is = "high"
+                    ord_to_process = self._high_priority_orders[0]
+                    self._process_order(ord_to_process)
+                    self._high_priority_orders.pop(0)   
+                    self._order_submitted_count += 1
+                elif (n_len > 0):
+                    self.current_order_is = "normal"
+                    ord_to_process = self._normal_orders[0]
+                    self._process_order(ord_to_process)
+                    if(ord_to_process._order_completed_flag):
+                        self._normal_orders.pop(0)
                         self._order_submitted_count += 1
-                    elif (n_len > 0):
-                        self.current_order_is = "normal"
-                        ord_to_process = self._normal_orders[0]
-                        self._process_order(ord_to_process)
-                        if(ord_to_process._order_completed_flag):
-                            self._normal_orders.pop(0)
-                            self._order_submitted_count += 1
-                    elif (self._order_submitted_count == self._order_announcements_count and self._competition_ended_flag):
-                        self.get_logger().info(f"Ending the Process order thread!!!")
-                        break
-                    # else:
-                    #     self.get_logger().info(f"Order count {self._order_announcements_count} {self._competition_ended_flag}, {self._order_submitted_count}")
+                elif (self._order_submitted_count == self._order_announcements_count and self._competition_ended_flag):
+                    self.get_logger().info(f"Ending the Process order thread!!!")
+                    break
 
     def _check_priority_flag(self):
         """
