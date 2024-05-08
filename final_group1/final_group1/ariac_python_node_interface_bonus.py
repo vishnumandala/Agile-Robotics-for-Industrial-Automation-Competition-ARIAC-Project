@@ -21,12 +21,13 @@ from sensor_msgs.msg import Image
 from launch_ros.substitutions import FindPackageShare
 from cv_bridge import CvBridge, CvBridgeError
 from ultralytics import YOLO
+from collections import Counter
 import numpy as np
 import cv2 as cv
 import time
 import threading
 import PyKDL
-import sys
+import yaml
 
 # Import custom ROS services
 from robot_commander_msgs.srv import (
@@ -155,6 +156,7 @@ class OrderManagement(Node):
         self.set_parameters([sim_time])
 
         self.pkg_share = FindPackageShare("final_group1").find("final_group1")
+        self.pkg_share_gazebo = FindPackageShare("ariac_gazebo").find("ariac_gazebo")
         qos_policy = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=10)
         
         # Create callback groups
@@ -194,14 +196,20 @@ class OrderManagement(Node):
         self.bins_done = {'Left':False,'Right':False,'Left Rgb':False,'Right Rgb':False}
         self.trays={'Left':{},'Right':{}} # To store the tray ids
         self.parts={'Left':{},'Right':{}} # To store the part types and colors
+        self.parts_order = {'Left':[],'Right':[]} # To store the parts in the order they are listed
         
         # Initialize YOLO model
         self._model = YOLO(f'{self.pkg_share}/dataset/yolo/best.pt')
+        self._yaml_path = f'{self.pkg_share_gazebo}/config/trials/test.yaml'
+        
+        with open(self._yaml_path, 'r') as file:
+            self.data = yaml.safe_load(file)
+            self._read_yaml()
 
         self._Tray_Dictionary = {}
         self._Bins_Dictionary = {}
-        self._Parts_Dictionary={'colors':{0: 'Red', 1: 'Green', 2: 'Blue', 3: 'Orange', 4: 'Purple'},
-                      'types':{10:'Battery', 11:'Pump', 12:'Sensor', 13:'Regulator'}}
+        self._Parts_Dictionary={'colors':{0: 'red', 1: 'green', 2: 'blue', 3: 'orange', 4: 'purple'},
+                      'types':{10:'battery', 11:'pump', 12:'sensor', 13:'regulator'}}
         self._Agvs_Dictionary = {}
         
         
@@ -215,8 +223,8 @@ class OrderManagement(Node):
         self._tray_id_mapping = {i: getattr(MoveRobotToTray.Request, f"TRAY_ID{i}") for i in range(10)}
         self._agv_id_mapping = {i: getattr(MoveTrayToAGV.Request, f"AGV{i}") for i in range(1, 5)}
         self._quadrant_mapping = {i: getattr(PlacePartTray.Request, f"QUADRANT{i}") for i in range(1, 5)}
-        self._part_color_mapping = {color: getattr(Part, color.upper()) for color in ["Red", "Green", "Blue", "Orange", "Purple"]}
-        self._part_type_mapping = {part_type: getattr(Part, part_type.upper()) for part_type in ["Battery", "Pump", "Sensor", "Regulator"]}
+        self._part_color_mapping = {color: getattr(Part, color.upper()) for color in ["red", "green", "blue", "orange", "purple"]}
+        self._part_type_mapping = {part_type: getattr(Part, part_type.upper()) for part_type in ["battery", "pump", "sensor", "regulator"]}
 
         self._robot_gripper_state = "part_gripper"
 
@@ -285,6 +293,21 @@ class OrderManagement(Node):
             )
         self._order_processing_thread.start()
 
+    def _read_yaml(self):
+        if 'parts' in self.data and 'bins' in self.data['parts']:
+            bins = self.data['parts']['bins']
+            for bin_id, parts in bins.items():
+                if bin_id in ['bin1', 'bin2', 'bin3', 'bin4']:
+                    for part in parts:
+                        for i in range(len(part['slots'])):
+                            part_entry = (part['color'], part['type'])
+                            self.parts_order['Right'].append(part_entry)
+                else:
+                    for part in parts:
+                        for i in range(len(part['slots'])):
+                            part_entry = (part['color'], part['type'])
+                            self.parts_order['Left'].append(part_entry)
+
     def _orders_initialization_cb(self, msg):
         """
         Callback for receiving orders.
@@ -317,8 +340,13 @@ class OrderManagement(Node):
         """
         Function to process the orders based on priority.
         """
-        while not all(self.bins_done.values()) or not all(self.tables_done.values()):
-            pass
+        table_done_temp=self.tables_done.copy()
+        bin_done_temp=self.bins_done.copy()
+        while not all(table_done_temp.values()) or not all(bin_done_temp.values()):
+            table_done_temp=self.tables_done.copy()
+            bin_done_temp=self.bins_done.copy()
+            # rclpy.spin_once(self)
+            time.sleep(0.1)
         self.get_logger().info(f"Starting the Process order thread!!!")
         if not self._competition_started:
             self._competition_started = True
@@ -503,7 +531,7 @@ class OrderManagement(Node):
                 self.bins_done[side] = True
                 for i in range(len(bin_poses)):
                     bin_part = self.parts[side][i]
-                    print('Bin Part:',bin_part)
+                    # print('Bin Part:',bin_part)
                     bin_part_pose = Pose()
                     bin_part_pose.position.x = bin_poses[i].position.x
                     bin_part_pose.position.y = bin_poses[i].position.y
@@ -540,6 +568,9 @@ class OrderManagement(Node):
         
         # Check if RGB processing is already done to avoid re-processing
         if self.bins_done[side+' Rgb'] == False:
+            order_of_parts = self.parts_order[side]
+            order_of_parts_counter = Counter(order_of_parts)
+            
             self.bins_done[side+' Rgb'] = True
             self.get_logger().info(f"Processing parts for side {side}")
             
@@ -579,24 +610,21 @@ class OrderManagement(Node):
                 for box in boxes:
                     b=box.xyxy[0].to('cpu').detach().numpy().copy()
                     c=box.cls
-                    class_name = self._model.names[int(c)]
+                    class_name = self._model.names[int(c)].lower()
                     top = int(b[0])
                     left = int(b[1])
                     bottom = int(b[2])
                     right = int(b[3])
                     parts.append((class_name, top, left, bottom, right))
-            
-            # Sorting parts based on location of the part
-            parts = sorted(parts, key=lambda x: np.sqrt(x[1]**2 + x[2]**2))
-            
+                        
             final_parts = []
 
             hsv_ranges = {
-                'Red': ([169, 100, 100], [189, 255, 255]),
-                'Green': ([57, 100, 100], [77, 255, 255]),
-                'Blue': ([105, 100, 100], [125, 255, 255]),
-                'Orange': ([3, 100, 100], [23, 255, 255]),
-                'Purple': ([128, 100, 100], [148, 255, 255])
+                'red': ([169, 100, 100], [189, 255, 255]),
+                'green': ([57, 100, 100], [77, 255, 255]),
+                'blue': ([105, 100, 100], [125, 255, 255]),
+                'orange': ([3, 100, 100], [23, 255, 255]),
+                'purple': ([128, 100, 100], [148, 255, 255])
             }
             
             # Detecting colors of the parts
@@ -613,8 +641,12 @@ class OrderManagement(Node):
                         part_color = color
                         max_area = area
                 final_parts.append((part_color, part[0]))
-                
-            self.parts[side] = final_parts
+            
+            if Counter(final_parts) == order_of_parts_counter:
+                self.get_logger().info(f"Parts in the {side} bins Found!")
+                self.parts[side] = order_of_parts
+            else:
+                self.bins_done[side + ' Rgb'] = False
 
     def _multiply_pose(self, pose1: Pose, pose2: Pose) -> Pose:
         '''
