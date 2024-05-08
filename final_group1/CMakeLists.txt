@@ -69,11 +69,13 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   script/ariac_python_node.py
+  script/ariac_bonus_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(PROGRAMS
   launch/final_group1.launch.py
+  launch/final_group1_bonus.launch.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

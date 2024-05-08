@@ -1,5 +1,6 @@
+from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import TimerAction,DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from ariac_moveit_config.parameters import generate_parameters
 
 
@@ -10,20 +11,10 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
         parameters=generate_parameters(),
     )
-    ariac_start_cpp = TimerAction(
-            period=20.0,
-            actions=[
-                Node(
-                package='final_group1',
-                executable='start_ariac_competition',
-                name='start_ariac_competition',
-                output='screen',
-            ),
-            ]
-        )
+
     ariac_python_py =  Node(
             package='final_group1',
-            executable='ariac_python_node.py',
+            executable='ariac_bonus_node.py',
             name='OrderManagement',
             output='screen'
             )
@@ -31,7 +22,6 @@ def launch_setup(context, *args, **kwargs):
     nodes_to_start = [
         moveit_cpp,
         ariac_python_py,
-        ariac_start_cpp,
     ]
 
     return nodes_to_start

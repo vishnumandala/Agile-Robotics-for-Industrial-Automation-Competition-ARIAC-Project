@@ -29,20 +29,41 @@ This repo is to collaborate with teammates to accomplish assignment goals.
     # Source the workspace
     source install/setup.bash
 ```
-### Terminal 1
-```bash
-    ros2 launch ariac_gazebo ariac.launch.py competitor_pkg:=final_group1 sensor_config:=sensors trial_name:=final_spring2024
-```
-### Terminal 2
-```bash
-    ros2 launch ariac_moveit_config ariac_robots_moveit.launch.py
-```
-### Terminal 3
-```bash
-    ros2 launch final_group1 final_group1.launch.py
-```
+- Ariac Running with Advanced Logical Cameras
+    ### Terminal 1
+    ```bash
+        ros2 launch ariac_gazebo ariac.launch.py competitor_pkg:=final_group1 sensor_config:=sensors trial_name:=final_spring2024
+    ```
+    ### Terminal 2
+    ```bash
+        ros2 launch ariac_moveit_config ariac_robots_moveit.launch.py
+    ```
+    ### Terminal 3
+    ```bash
+        ros2 launch final_group1 final_group1.launch.py
+    ```
 
-`Note`: Run the Command in terminal two after the statement `"You can now start the competetion!"` in Terminal 1.
+    `Note`: Run the Command in terminal two after the statement `"You can now start the competetion!"` in Terminal 1.
+
+- Ariac Running with Basic Logical Cameras
+    ### Terminal 1
+    ```bash
+        ros2 launch ariac_gazebo ariac.launch.py competitor_pkg:=final_group1 sensor_config:=sensors_bonus trial_name:=final_spring2024
+    ```
+    ### Terminal 2
+    ```bash
+        ros2 launch ariac_moveit_config ariac_robots_moveit.launch.py
+    ```
+    ### Terminal 3
+    ```bash
+        ros2 launch final_group1 final_group1_bonus.launch.py
+    ```
+
+    `Note`: Run the Command in terminal two after the statement `"You can now start the competetion!"` in Terminal 1.
+
+# Optional
+- To run the codes place `ariac_group1.sh` or `ariac_group1_bonus.sh` in your workspace along with src, build, install folders and double click it to run the terminals.
+
 
 ## Results: 
 You can see the ARIAC environment performing the task sequentially and the terminal 1 and terminal 3 displaying important updates

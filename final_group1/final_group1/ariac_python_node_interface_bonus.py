@@ -173,21 +173,17 @@ class OrderManagement(Node):
             '_right_table_camera_subscription': ('/ariac/sensors/right_table_camera/image', BasicLogicalCameraImage, lambda msg: self._table_camera_callback(msg, 'Right'), qos_policy),
             '_left_bins_camera_subscription': ('/ariac/sensors/left_bins_camera/image', BasicLogicalCameraImage, lambda msg: self._bin_camera_callback(msg, 'Left'), qos_policy),  
             '_right_bins_camera_subscription': ('/ariac/sensors/right_bins_camera/image', BasicLogicalCameraImage, lambda msg: self._bin_camera_callback(msg, 'Right'), qos_policy),
-            '_right_table_rgb_subscription': ('/ariac/sensors/right_table_camera_rgb/rgb_image', Image, lambda msg: self._table_tray_callback(msg,'Right'), QoSProfile(depth=10)),
-            '_left_table_rgb_subscription': ('/ariac/sensors/left_table_camera_rgb/rgb_image', Image, lambda msg: self._table_tray_callback(msg,'Left'), QoSProfile(depth=10)),
-            '_left_bins_rgb_subscription': ('/ariac/sensors/left_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Left'), QoSProfile(depth=10)),
-            '_right_bins_rgb_subscription': ('/ariac/sensors/right_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Right'), QoSProfile(depth=10)),
+            '_right_table_rgb_subscription': ('/ariac/sensors/right_table_camera_rgb/rgb_image', Image, lambda msg: self._table_tray_callback(msg,'Right'), QoSProfile(depth=1)),
+            '_left_table_rgb_subscription': ('/ariac/sensors/left_table_camera_rgb/rgb_image', Image, lambda msg: self._table_tray_callback(msg,'Left'), QoSProfile(depth=1)),
+            '_left_bins_rgb_subscription': ('/ariac/sensors/left_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Left'), QoSProfile(depth=1)),
+            '_right_bins_rgb_subscription': ('/ariac/sensors/right_bins_camera_rgb/rgb_image', Image, lambda msg: self._bin_part_callback(msg,'Right'), QoSProfile(depth=1)),
             '_robot_gripper_state_subscription': ('/ariac/floor_robot_gripper_state', VacuumGripperState, self._robot_gripper_state_subscription_cb, qos_policy),
         }  
         
-        subscriptions_additional = {
-            '_robot_gripper_state_subscription': ('/ariac/floor_robot_gripper_state', VacuumGripperState, self._robot_gripper_state_subscription_cb,qos_policy)
-        }
         # Create the subscriptions
         for attr, (topic, msg_type, callback,qos) in subscriptions.items():
             setattr(self, attr, self.create_subscription(msg_type, topic, callback, qos_profile=qos, callback_group=self.callback_groups['_sensor_callback_group']))
-        for attr, (topic, msg_type, callback,qos) in subscriptions_additional.items():
-            setattr(self, attr, self.create_subscription(msg_type, topic, callback, qos_profile=qos, callback_group=self.callback_groups['_agv_callback_group']))
+
         self._competition_state_subscription = self.create_subscription(CompetitionState,"/ariac/competition_state",self._competition_state_cb,qos_profile=qos_policy,callback_group=self.callback_groups['_competition_callback_group'])
         self._orders_subscription = self.create_subscription(OrderMsg,"/ariac/orders",self._orders_initialization_cb,qos_profile=qos_policy,callback_group=self.callback_groups['_order_callback_group'])
         
@@ -197,11 +193,11 @@ class OrderManagement(Node):
         self._agv_velocities = {}
         self.current_order = None  # Track the currently processing or waiting order
         self.competition_ended = False
-        self.tables_done = {'Left':True,'Right':True,'Left Rgb':True,'Right Rgb':True} # To avoid reprocessing
-        self.bins_done = {'Left':True,'Right':True,'Left Rgb':True,'Right Rgb':True} # To avoid reprocessing
+        self.tables_done = {'Left':True,'Right':True,'Left Rgb':True,'Right Rgb':True,'Lefts Rgb':True,'Rights Rgb':True} # To avoid reprocessing
+        self.bins_done = {'Left':True,'Right':True,'Left Rgb':True,'Right Rgb':True,'Lefts Rgb':True,'Rights Rgb':True} # To avoid reprocessing
         self.trays={'Left':{},'Right':{}} # To store the tray ids
         self.parts={'Left':{},'Right':{}} # To store the part types and colors
-        self._parts_order = {'Left':[],'Right':[]} # To store the parts in the order they are listed
+        self._parts_order = {'left':[],'right':[]} # To store the parts in the order they are listed
         
         # Initialize YOLO model
         self._model = YOLO(f'{self.pkg_share}/dataset/yolo/best.pt')
@@ -243,6 +239,7 @@ class OrderManagement(Node):
             '_change_gripper_cli': (ChangeGripper, "/ariac/floor_robot_change_gripper"),
             '_drop_part_in_trash_cli' : (Trigger, "/commander/drop_part_in_trash"),
             '_detach_part_planning_scene_cli' : (Trigger, "/commander/detach_part_planning_scene"),
+            '_start_competition_cli': (Trigger, "/ariac/start_competition"),
         }
 
         # Create the service clients
@@ -279,6 +276,7 @@ class OrderManagement(Node):
         self._agv_moved_warehouse = False
         self._submitted_order = False
         self._competition_ended_flag = False
+        self._yaml_read = False
 
 
         self._high_priority_orders = []
@@ -289,12 +287,37 @@ class OrderManagement(Node):
         self._order_announcements_count = 0
         self._order_submitted_count = 0
         self._faults = []
+        
+        # Timer for starting the competition
+        self._competition_start_timer = self.create_timer(1, self._start_competition)
 
         # Start order processing thread
         self._order_processing_thread = threading.Thread(
                 target=self._order_priority_timer_cb
             )
         self._order_processing_thread.start()
+
+    def _start_competition(self):
+        """
+        Function to start the competition.
+        """
+        if not self._competition_started and self._yaml_read:
+            if self.tables_done['Left Rgb'] and self.tables_done['Right Rgb'] and self.bins_done['Left Rgb'] and self.bins_done['Right Rgb']:
+                self.get_logger().info("Starting the competition")
+                future = self._start_competition_cli.call_async(Trigger.Request())
+                future.add_done_callback(self._start_competition_cb)
+            else:
+                self.get_logger().info("Waiting for the sensors to be ready",end='\r')
+            
+    def _start_competition_cb(self, future):
+        """
+        Callback for starting the competition.
+        """
+        try:
+            self._competition_start_timer.cancel()
+            self.get_logger().info("Competition started")
+        except Exception as e:
+            self.get_logger().error(f"Service call failed: {e}")
 
     def _get_yaml(self):
         """
@@ -304,27 +327,34 @@ class OrderManagement(Node):
         request = GetParameters.Request()
         request.names = ['trial_config_path']
         future = self._get_yaml_cli.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        response = future.result()
-        yaml_path = response.values[0].string_value
-        with open(yaml_path, 'r') as file:
-            data = yaml.safe_load(file)
-            if 'parts' in data and 'bins' in data['parts']:
-                bins = data['parts']['bins']
-                for bin_id, parts in bins.items():
-                    if bin_id in ['bin1', 'bin2', 'bin3', 'bin4']:
-                        for part in parts:
-                            for i in range(len(part['slots'])):
-                                part_entry = (part['color'], part['type'])
-                                self._parts_order['Right'].append(part_entry)
-                    else:
-                        for part in parts:
-                            for i in range(len(part['slots'])):
-                                part_entry = (part['color'], part['type'])
-                                self._parts_order['Left'].append(part_entry)
-        self.get_logger().info('Done reading yaml file!')
-        self.tables_done = {x: False for x in self.tables_done}
-        self.bins_done = {x: False for x in self.bins_done}
+        future.add_done_callback(self._yaml_cb)
+
+    def _yaml_cb(self, future):
+        try:
+            response = future.result()
+            yaml_path = response.values[0].string_value
+            with open(yaml_path, 'r') as file:
+                data = yaml.safe_load(file)
+                if 'parts' in data and 'bins' in data['parts']:
+                    bins = data['parts']['bins']
+                    for bin_id, parts in bins.items():
+                        if bin_id in ['bin1', 'bin2', 'bin3', 'bin4']:
+                            for part in parts:
+                                for i in range(len(part['slots'])):
+                                    part_entry = (part['color'], part['type'])
+                                    self._parts_order['right'].append(part_entry)
+                        else:
+                            for part in parts:
+                                for i in range(len(part['slots'])):
+                                    part_entry = (part['color'], part['type'])
+                                    self._parts_order['left'].append(part_entry)
+            self.get_logger().info('Done reading yaml file!')
+            self.tables_done = {x: False for x in self.tables_done}
+            self.bins_done = {x: False for x in self.bins_done}
+            self._yaml_read = True
+        except Exception as e:
+            self.get_logger().error('Failed to read yaml file!')
+        
 
     def _orders_initialization_cb(self, msg):
         """
@@ -358,12 +388,15 @@ class OrderManagement(Node):
         """
         Function to process the orders based on priority.
         """
+        yaml_read_temp = self._yaml_read
+        while not yaml_read_temp:
+            yaml_read_temp = self._yaml_read
+            time.sleep(0.1)
         table_done_temp=self.tables_done.copy()
         bin_done_temp=self.bins_done.copy()
         while not all(table_done_temp.values()) or not all(bin_done_temp.values()):
             table_done_temp=self.tables_done.copy()
             bin_done_temp=self.bins_done.copy()
-            # rclpy.spin_once(self)
             time.sleep(0.1)
         self.get_logger().info(f"Starting the Process order thread!!!")
         if not self._competition_started:
@@ -439,7 +472,7 @@ class OrderManagement(Node):
             self.get_logger().warn("Unknown table ID")
             return
         
-        if self.tables_done[table_id] == False and self.tables_done[table_id+' Rgb'] == True:
+        if self.tables_done[table_id] == False and self.tables_done[table_id+'s Rgb'] == True:
             self._Tray_Dictionary[table_id]={}
             tray_poses = message.tray_poses
             if len(tray_poses) > 0:
@@ -480,8 +513,8 @@ class OrderManagement(Node):
             self.get_logger().warn("Unknown side ID")
             return
         
-        if self.tables_done[side+' Rgb'] == False:
-            self.tables_done[side+' Rgb'] = True
+        if self.tables_done[side+'s Rgb'] == False:
+            self.tables_done[side+'s Rgb'] = True
             self.get_logger().info(f"Processing trays for {side} side")
 
             # Placeholder for detected trays
@@ -528,14 +561,15 @@ class OrderManagement(Node):
                         trays.append(detected_trays[i][0])
 
             self.trays[side] = trays
-            
+            self.tables_done[side+' Rgb'] = True
+         
     def _bin_camera_callback(self, message,side='Unknown'):
         
         if side == 'Unknown':
             self.get_logger().warn("Unknown side ID")
             return
         
-        if self.bins_done[side] == False and self.bins_done[side+' Rgb'] == True:
+        if self.bins_done[side] == False and self.bins_done[side+'s Rgb'] == True:
             bin_poses = message.part_poses
             bin_camera_pose = Pose()
             bin_camera_pose.position.x = message.sensor_pose.position.x
@@ -548,7 +582,6 @@ class OrderManagement(Node):
 
             self._Bins_Dictionary[side]={}
             if len(bin_poses) > 0:
-                self.bins_done[side] = True
                 for i in range(len(bin_poses)):
                     bin_part = self.parts[side][i]
                     # print('Bin Part:',bin_part)
@@ -573,6 +606,7 @@ class OrderManagement(Node):
                         self._Bins_Dictionary[side][(type,color)]={}
                         self._Bins_Dictionary[side][(type,color)][0]={'position': [bin_world_pose.position.x,bin_world_pose.position.y,bin_world_pose.position.z],
                                                                     'orientation': [bin_world_pose.orientation.x,bin_world_pose.orientation.y,bin_world_pose.orientation.z,bin_world_pose.orientation.w],'picked': False}
+                self.bins_done[side] = True
 
     def _bin_part_callback(self, message, side='Unknown'):
         """ Callback for bin camera images. Detects parts in the bins and updates the parts dictionary.
@@ -587,12 +621,12 @@ class OrderManagement(Node):
             return
         
         # Check if RGB processing is already done to avoid re-processing
-        if self.bins_done[side+' Rgb'] == False:
-            order_of_parts = self._parts_order[side]
+        if self.bins_done[side+'s Rgb'] == False:
+            order_of_parts = self._parts_order[side.lower()]
             self.get_logger().info(f"Order of parts for side {side}: {order_of_parts}")
             order_of_parts_counter = Counter(order_of_parts)
             
-            self.bins_done[side+' Rgb'] = True
+            self.bins_done[side+'s Rgb'] = True
             self.get_logger().info(f"Processing parts for {side} side")
             
             # Detecting Parts
@@ -666,9 +700,11 @@ class OrderManagement(Node):
             if Counter(final_parts) == order_of_parts_counter:
                 self.get_logger().info(f"Parts in the {side} bins Found!")
                 self.parts[side] = order_of_parts
+                self.bins_done[side+' Rgb'] = True
             else:
-                self.get_logger().info(f"Parts in the {side} bins Not Found! Trying again")
-                self.bins_done[side + ' Rgb'] = False
+                self.get_logger().info(f"Getting new image for {side} bins!")
+                self.bins_done[side + 's Rgb'] = False
+                self.bins_done[side+' Rgb'] = False
 
     def _multiply_pose(self, pose1: Pose, pose2: Pose) -> Pose:
         '''
@@ -746,7 +782,6 @@ class OrderManagement(Node):
                 for k, part in enumerate(self._Bins_Dictionary[side][(type, color)].values()):
                     if not part['picked']:
                         self._Bins_Dictionary[side][(type, color)][k]['picked'] = True
-                        self._parts_order[side].remove((color, type))
                         return side.lower(), part['position'], part['orientation']
         return None, None, None
     
@@ -1109,6 +1144,7 @@ class OrderManagement(Node):
                     # self.get_logger().info("Python Node : Part Placed on Tray")
                     if a == 0:
                         self._faulty_gripper_challenge()
+                        self._parts_order[part_bin_side].remove((v["part_color"], v["part_type"]))
                         bin_side, pose, orientation = self._find_available_part(v["part_type"], v["part_color"])
                         if bin_side is None:
                             self.get_logger().info(f"Part {v['part_color']} {v['part_type']} not available in bins. Skipping.")
@@ -1135,6 +1171,7 @@ class OrderManagement(Node):
                         bin_side, pose, orientation = self._find_available_part(v["part_type"], v["part_color"])
                         if bin_side is None:
                             self.get_logger().info(f"Part {v['part_color']} {v['part_type']} not available in bins. Skipping.")
+                            self._parts_order[part_bin_side].remove((v["part_color"], v["part_type"]))
                             v["part_status"] = True
                             continue
                         v["pose"] = pose
@@ -1145,6 +1182,7 @@ class OrderManagement(Node):
                         self.get_logger().info(f"Part Placed on Tray")
                         self._release_part_on_tray(agv_id, part_quadrant)
                         v["part_status"] = True     # Mark the part as placed on tray
+                        self._parts_order[part_bin_side].remove((v["part_color"], v["part_type"]))
                     self._faults = []
                     
                     if self._check_priority_flag():
