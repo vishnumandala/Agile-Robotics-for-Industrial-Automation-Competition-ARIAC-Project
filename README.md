@@ -1,4 +1,5 @@
-# ARIAC
+# Agile Robotics for Industrial Automation Competition (ARIAC) Project
+## ENPM663 - Building a Manufacturing Robotic Software System 
 
 The ARIAC (Agile Robotics for Industrial Automation Competition) , hosted by the National Institute of Standards and Technology (NIST), presents a rigorous platform for testing the agility and adaptability of robotic systems in dynamic manufacturing environments. This annual competition challenges participants to develop innovative solutions capable of performing a series of tasks, including pick-and-place operations, assembly, and kitting, within a simulated warehouse setting. More information about ARIAC can be found on [Official ARIAC Website](https://pages.nist.gov/ARIAC_docs/en/2023.5.0/index.html)
 
@@ -108,8 +109,7 @@ Our software development for the ARIAC competition utilizes both Python and C++,
 ### Optional
 - To run the codes place `ariac_group1.sh` or `ariac_group1_bonus.sh` in your workspace along with src, build, install folders and double click it to run the terminals.
 
-
-## Results: 
+## Results
 You can see the ARIAC environment performing the task sequentially and the terminal 1 and terminal 3 displaying important updates. 
 
 - The information about how each agility challenge is handled and implementation details can be found in [Final report](results/Final_Report.pdf)
@@ -121,7 +121,7 @@ The Video of the UR10 Arm picking up the part and placing on tray is shown below
 <img width="75%" alt="Result Video" src="results/final_video.gif">
 </p>
 
-## Team Members:
+## Team Members
 
 1. Ankur Mahesh Chavan                   
 2. Datta Lohith Gannavarapu 
@@ -129,7 +129,7 @@ The Video of the UR10 Arm picking up the part and placing on tray is shown below
 4. Vinay Krishna Bukka
 5. Vishnu Mandala
 
-## Resources:
+## Resources
 1. [https://pages.nist.gov/ARIAC_docs/en/latest/index.html](https://pages.nist.gov/ARIAC_docs/en/latest/index.html)
 2. [ROS Galactic](https://docs.ros.org/en/galactic/index.html)
 3. [Ultralytics](https://docs.ultralytics.com)
